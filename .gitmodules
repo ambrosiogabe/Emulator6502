@@ -1,0 +1,3 @@
+[submodule "Emulator/vendor/CppUtils"]
+	path = Emulator/vendor/CppUtils
+	url = https://github.com/ambrosiogabe/CppUtils
