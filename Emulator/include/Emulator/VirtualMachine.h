@@ -9,32 +9,86 @@ typedef enum emu_vmType
 	emu_vmType_Commodore64 = 2,
 } emu_vmType;
 
+// From https://www.oxyron.de/html/opcodes02.html
+// imm = #$00    immediate
+// zp  = $00     zero page
+// zpx = $00,X   zero page + X
+// zpy = $00,Y   zero page + y
+// izx = ($00,X) 
+
+// Ones I care about for now
+// imm
+// zp
+// 
+
+#define EMU_MAX_INSTRUCTION_OPCODE UINT8_MAX
+extern const char* emu_vmInstructions[];
+
 typedef enum emu_vmInstruction
 {
-	emu_vmInstruction_BRK = 0x0,
+	emu_vmInstruction_BRK = 0x00,
+	emu_vmInstruction_CLC = 0x18,
+	emu_vmInstruction_RTS = 0x60,
 	// -- OR instructions --
-	emu_vmInstruction_ORA = 0x1,
+	emu_vmInstruction_ORA_IZX = 0x01,
 	// -- ADC instructions --
-	emu_vmInstruction_IND_ADC = 0x61,
-	emu_vmInstruction_ZP_ADC = 0x65,
-	emu_vmInstruction_IMMEDIATE_ADC = 0x69,
-	emu_vmInstruction_ABS_ADC = 0x6c,
-	emu_vmInstruction_IND_ADC_Y = 0x71,
-	emu_vmInstruction_ZP_ADC_X = 0x75,
-	emu_vmInstruction_ABS_ADC_X = 0x7D,
-	// TODO: Is this immediate mode?
-	emu_vmInstruction_IDX_ADC_Y = 0x79,
-	// --  Store Instructions --
-	emu_vmInstruction_ZP_STY = 0x84,
-	emu_vmInstruction_STA = 0x85,
-	emu_vmInstruction_ZP_STX = 0x86,
-	emu_vmInstruction_ABS_STY = 0x8c,
-	emu_vmInstruction_ABS_STA = 0x8D,
-	emu_vmInstruction_ABS_STX = 0x8e,
-	emu_vmInstruction_IDX_STA_IND_Y = 0x91,
-	emu_vmInstruction_IDX_STY_ZP_X = 0x94,
+	emu_vmInstruction_ADC_IZX = 0x61,
+	emu_vmInstruction_ADC_ZP = 0x65,
+	emu_vmInstruction_ADC_IMM = 0x69,
+	emu_vmInstruction_ADC_ABS = 0x6D,
+	emu_vmInstruction_ADC_IZY = 0x71,
+	emu_vmInstruction_ADC_ZPX = 0x75,
+	emu_vmInstruction_ADC_ABY = 0x79,
+	emu_vmInstruction_ADC_ABX = 0x7D,
+	// -- Store Instructions --
+	emu_vmInstruction_STA_IZX = 0x81,
+	emu_vmInstruction_STY_ZP = 0x84,
+	emu_vmInstruction_STA_ZP = 0x85,
+	emu_vmInstruction_STX_ZP = 0x86,
+	emu_vmInstruction_STY_ABS = 0x8c,
+	emu_vmInstruction_STA_ABS = 0x8D,
+	emu_vmInstruction_STX_ABS = 0x8e,
+	emu_vmInstruction_STA_IZY = 0x91,
+	emu_vmInstruction_STY_ZPX = 0x94,
+	emu_vmInstruction_STA_ZPX = 0x95,
+	emu_vmInstruction_STX_ZPY = 0x96,
+	emu_vmInstruction_STA_ABY = 0x99,
+	emu_vmInstruction_STA_ABX = 0x9D,
+	// -- Load Instructions --
+	emu_vmInstruction_LDY_IMM = 0xA0,
+	emu_vmInstruction_LDA_IZX = 0xA1,
+	emu_vmInstruction_LDX_IMM = 0xA2,
+	emu_vmInstruction_LDY_ZP = 0xA4,
+	emu_vmInstruction_LDA_ZP = 0xA5,
+	emu_vmInstruction_LDX_ZP = 0xA6,
+	emu_vmInstruction_LDA_IMM = 0xA9,
+	emu_vmInstruction_LDY_ABS = 0xAC,
+	emu_vmInstruction_LDA_ABS = 0xAD,
+	emu_vmInstruction_LDX_ABS = 0xAE,
+	emu_vmInstruction_LDA_IZY = 0xB1,
+	emu_vmInstruction_LDY_ZPX = 0xB4,
+	emu_vmInstruction_LDA_ZPX = 0xB5,
+	emu_vmInstruction_LDX_ZPY = 0xB6,
+	emu_vmInstruction_LDA_ABY = 0xB9,
+	emu_vmInstruction_LDY_ABX = 0xBC,
+	emu_vmInstruction_LDA_ABX = 0xBD,
+	emu_vmInstruction_LDX_ABY = 0xBE,
 	// -- JMP instructions --
-	emu_vmInstruction_JMP_INDIRECT = 0x6C,
+	emu_vmInstruction_JMP_IND = 0x6C,
+	// -- Compare instructions --
+	emu_vmInstruction_CMP_IZX = 0xC1,
+	emu_vmInstruction_CMP_ZP = 0xC5,
+	emu_vmInstruction_CMP_IMM = 0xC9,
+	emu_vmInstruction_CMP_ABS = 0xCD,
+	emu_vmInstruction_CMP_IZY = 0xD1,
+	emu_vmInstruction_CMP_ZPX = 0xD5,
+	emu_vmInstruction_CMP_ABY = 0xD9,
+	emu_vmInstruction_CMP_ABX = 0xDD,
+	// -- Branch instructions --
+	emu_vmInstruction_BCC_REL = 0x90,
+
+	// NOP that we'll use as a flag
+	emu_vmInstruction_ILLEGAL = 0xFA,
 } emu_vmInstruction;
 
 typedef enum emu_vmError
@@ -44,7 +98,21 @@ typedef enum emu_vmError
 	emu_vmError_NullVm,
 	emu_vmError_NullProgram,
 	emu_vmError_EmptyProgram,
+	emu_vmError_IllegalOpcode,
+	emu_vmError_Break,
 } emu_vmError;
+
+typedef enum emu_vmStatus
+{
+	emu_vmStatus_Carry            = 0x1 << 0,
+	emu_vmStatus_Zero             = 0x1 << 1,
+	emu_vmStatus_InterruptDisable = 0x1 << 2,
+	emu_vmStatus_Decimal          = 0x1 << 3,
+	emu_vmStatus_B                = 0x1 << 4,
+	emu_vmStatus_1                = 0x1 << 5,
+	emu_vmStatus_Overflow         = 0x1 << 6,
+	emu_vmStatus_Negative         = 0x1 << 7
+} emu_vmStatus;
 
 typedef struct emu_virtualMachine
 {
@@ -65,6 +133,9 @@ typedef struct emu_virtualMachine
 	uint8* rom;
 } emu_virtualMachine;
 
+void emu_vm_initDebug();
+void emu_vm_printOpcodes(uint8* program, size_t programSize);
+
 // NES Type
 // @romSize: $BFE0 = 49'120 bytes
 // @ramSize: $0800 = 2 KiloBytes
@@ -80,5 +151,11 @@ emu_vmError emu_vm_initProgram(emu_virtualMachine* vm);
 emu_vmError emu_vm_tick(emu_virtualMachine* vm);
 
 void emu_vm_free(emu_virtualMachine* vm);
+
+const char* emu_vm_instructionToString(emu_vmInstruction instruction);
+
+uint8 emu_vm_getStatus(emu_virtualMachine* vm, emu_vmStatus status);
+void emu_vm_setStatus(emu_virtualMachine* vm, emu_vmStatus status);
+void emu_vm_clearStatus(emu_virtualMachine* vm, emu_vmStatus status);
 
 #endif
