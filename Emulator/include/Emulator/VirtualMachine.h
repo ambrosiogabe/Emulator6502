@@ -172,6 +172,12 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_LSR_ZPX = 0x56,
 	emu_vmInstruction_LSR_ABS = 0x4E,
 	emu_vmInstruction_LSR_ABX = 0x5E,
+	// -- ROR (Rotate Right) Instructions --
+	emu_vmInstruction_ROR_IMP = 0x6A,
+	emu_vmInstruction_ROR_ZP = 0x66,
+	emu_vmInstruction_ROR_ZPX = 0x76,
+	emu_vmInstruction_ROR_ABS = 0x6E,
+	emu_vmInstruction_ROR_ABX = 0x7E,
 	// -- Branch instructions --
 	emu_vmInstruction_BCC_REL = 0x90,
 

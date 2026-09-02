@@ -29,6 +29,7 @@ static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
+static void rotateRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
@@ -187,6 +188,12 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_LSR_ZPX] = "LSR_ZPX";
 	emu_vmInstructions[emu_vmInstruction_LSR_ABS] = "LSR_ABS";
 	emu_vmInstructions[emu_vmInstruction_LSR_ABX] = "LSR_ABX";
+	// -- ROR (Rotate Right) Instructions --
+	emu_vmInstructions[emu_vmInstruction_ROR_IMP] = "ROR_IMP";
+	emu_vmInstructions[emu_vmInstruction_ROR_ZP] = "ROR_ZP";
+	emu_vmInstructions[emu_vmInstruction_ROR_ZPX] = "ROR_ZPX";
+	emu_vmInstructions[emu_vmInstruction_ROR_ABS] = "ROR_ABS";
+	emu_vmInstructions[emu_vmInstruction_ROR_ABX] = "ROR_ABX";
 	// -- Branch instructions --
 	emu_vmInstructions[emu_vmInstruction_BCC_REL] = "BCC_REL";
 
@@ -446,6 +453,11 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ROL_ZP, rotateLeft);
 		// Logical Shift Right
 		INSTRUCTION_EXPANSION(emu_vmInstruction_LSR_ZP, logicalShiftRight);
+		// Rotate Right
+		INSTRUCTION_EXPANSION(emu_vmInstruction_ROR_ZP, rotateRight);
+	case emu_vmInstruction_ROR_IMP:
+		rotateRight(vm, instruction, UINT8_MAX);
+		break;
 	case emu_vmInstruction_LSR_IMP:
 		logicalShiftRight(vm, instruction, UINT8_MAX);
 		break;
@@ -692,5 +704,33 @@ static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction instruct
 	else
 	{
 		vm->ram[address] = vm->ram[address] >> 1;
+	}
+}
+
+static void rotateRight(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address)
+{
+	// Implicit instructions rotate the A register right
+	uint8 value = vm->ram[address];
+	if (instruction == emu_vmInstruction_ROR_IMP)
+	{
+		value = vm->accumulatorReg;
+	}
+
+	// Set carry flag if lowest bit is set
+	uint8 oldCarry = emu_vm_getStatus(vm, emu_vmStatus_Carry);
+	if ((value & 1) > 0)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+	}
+
+	if (instruction == emu_vmInstruction_ROR_IMP)
+	{
+		vm->accumulatorReg = vm->accumulatorReg >> 1;
+		vm->accumulatorReg |= (oldCarry << 7);
+	}
+	else
+	{
+		vm->ram[address] = vm->ram[address] >> 1;
+		vm->ram[address] |= (oldCarry << 7);
 	}
 }
