@@ -118,6 +118,10 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_CMP_ZPX = 0xD5,
 	emu_vmInstruction_CMP_ABY = 0xD9,
 	emu_vmInstruction_CMP_ABX = 0xDD,
+	// -- CPX (Compare X) Instructions --
+	emu_vmInstruction_CPX_IMM = 0xE0,
+	emu_vmInstruction_CPX_ZP = 0xE4,
+	emu_vmInstruction_CPX_ABS = 0xEC,
 	// -- Branch instructions --
 	emu_vmInstruction_BCC_REL = 0x90,
 

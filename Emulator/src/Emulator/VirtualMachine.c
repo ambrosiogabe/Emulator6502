@@ -140,6 +140,10 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_CMP_ZPX] = "CMP_ZPX";
 	emu_vmInstructions[emu_vmInstruction_CMP_ABY] = "CMP_ABY";
 	emu_vmInstructions[emu_vmInstruction_CMP_ABX] = "CMP_ABX";
+	// -- CPX (Compare X) Instructions --
+	emu_vmInstructions[emu_vmInstruction_CPX_IMM] = "CPX_IMM";
+	emu_vmInstructions[emu_vmInstruction_CPX_ZP] = "CPX_ZP";
+	emu_vmInstructions[emu_vmInstruction_CPX_ABS] = "CPX_ABS";
 	// -- Branch instructions --
 	emu_vmInstructions[emu_vmInstruction_BCC_REL] = "BCC_REL";
 
@@ -376,6 +380,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Compare
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CMP_ZP, compare);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_CMP_IMM, compare);
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CPX_ZP, compare);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_CPX_IMM, compare);
 		// Logical OR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ORA_ZP, logicalOr);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ORA_IMM, logicalOr);
@@ -427,8 +433,12 @@ static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruct
 	switch (instruction)
 	{
 	case emu_vmInstruction_STA_ZP:
+	case emu_vmInstruction_CMP_ZP:
+	case emu_vmInstruction_CMP_IMM:
 		return vm->accumulatorReg;
 	case emu_vmInstruction_STX_ZP:
+	case emu_vmInstruction_CPX_ZP:
+	case emu_vmInstruction_CPX_IMM:
 		return vm->xReg;
 	case emu_vmInstruction_STY_ZP:
 		return vm->yReg;
@@ -444,10 +454,14 @@ static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 	{
 	case emu_vmInstruction_LDA_ZP:
 	case emu_vmInstruction_LDA_IMM:
+	case emu_vmInstruction_CMP_ZP:
+	case emu_vmInstruction_CMP_IMM:
 		vm->accumulatorReg = value;
 		break;
 	case emu_vmInstruction_LDX_IMM:
 	case emu_vmInstruction_LDX_ZP:
+	case emu_vmInstruction_CPX_ZP:
+	case emu_vmInstruction_CPX_IMM:
 		vm->xReg = value;
 		break;
 	case emu_vmInstruction_LDY_IMM:
@@ -487,14 +501,15 @@ static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8
 	vm->accumulatorReg += value;
 }
 
-static void compare(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
+static void compare(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value)
 {
+	uint8 registerValue = getRegisterValue(vm, instruction);
 	// Perform unsigned subtraction 
-	if (vm->accumulatorReg > value)
+	if (registerValue > value)
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
-	vm->accumulatorReg -= value;
+	setRegisterValue(vm, instruction, registerValue - value);
 }
 
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
