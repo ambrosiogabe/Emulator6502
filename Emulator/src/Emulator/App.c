@@ -47,22 +47,6 @@ void emu_app_run(emu_app* app)
 	}
 
 	g_memory_free(program.program);
-
-	HashMapTest* test = NULL;
-	stbds_shput(test, "Foo", 0);
-	stbds_shput(test, "Bar", 1);
-	stbds_shput(test, "Baz", 2);
-
-	uint8 a = stbds_shget(test, "Foo");
-	uint8 b = stbds_shget(test, "Bar");
-	uint8 c = stbds_shget(test, "Baz");
-
-	for (size_t i = 0; i < stbds_shlenu(test); i++)
-	{
-		g_logger_info("%u", test[i].value);
-	}
-
-	stbds_shfree(test);
 }
 
 void emu_app_free(emu_app* app)

@@ -5,51 +5,20 @@
 const char* emu_vmInstructions[EMU_MAX_INSTRUCTION_OPCODE] = { 0 };
 
 // --------------- Internal Structures --------------- 
-typedef enum RegisterMode
-{
-	RegA,
-	RegX,
-	RegY
-} RegisterMode;
-
-typedef enum AddressMode
-{
-	AddressMode_None,
-	AddressMode_ZeroPage,
-	AddressMode_Absolute,
-	AddressMode_Immediate,
-	AddressMode_Relative
-} AddressMode;
-
-typedef enum BaseInstruction
-{
-	BaseInstruction_Break = 0,
-	BaseInstruction_Store,
-	BaseInstruction_Load,
-	BaseInstruction_Jump,
-	BaseInstruction_Add,
-	BaseInstruction_ClearFlag,
-	BaseInstruction_Compare,
-	BaseInstruction_Branch,
-} BaseInstruction;
-
 typedef struct VmInstruction
 {
 	emu_vmInstruction type;
-	BaseInstruction baseType;
-	AddressMode addressMode;
-	RegisterMode regMode;
-	bool isIndexed;
-	uint8 instructionLength;
-	uint8 arg0;
-	uint8 arg1;
 } VmInstruction;
 
 // --------------- Internal Functions ---------------
 // Fetch and decode next instruction
-static VmInstruction fetchInstruction(emu_virtualMachine* vm);
-static void executeInstruction(emu_virtualMachine* vm, const VmInstruction* instruction);
+static emu_vmInstruction fetchInstruction(emu_virtualMachine* vm);
+static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static uint8 getNext(emu_virtualMachine* vm);
+static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
+static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
+static void addWithCarry(emu_virtualMachine* vm, uint8 value);
+static void compare(emu_virtualMachine* vm, uint8 value);
 
 void emu_vm_initDebug()
 {
@@ -248,16 +217,16 @@ emu_vmError emu_vm_initProgram(emu_virtualMachine* vm)
 
 emu_vmError emu_vm_tick(emu_virtualMachine* vm)
 {
-	VmInstruction instruction = fetchInstruction(vm);
-	if (instruction.type == emu_vmInstruction_ILLEGAL)
+	emu_vmInstruction instruction = fetchInstruction(vm);
+	if (instruction == emu_vmInstruction_ILLEGAL)
 	{
 		return emu_vmError_IllegalOpcode;
 	}
-	else if (instruction.type == emu_vmInstruction_BRK)
+	else if (instruction == emu_vmInstruction_BRK)
 	{
 		return emu_vmError_Break;
 	}
-	executeInstruction(vm, &instruction);
+	executeInstruction(vm, instruction);
 
 	return emu_vmError_None;
 }
@@ -323,338 +292,83 @@ void emu_vm_clearStatus(emu_virtualMachine* vm, emu_vmStatus status)
 }
 
 // --------------- Internal Functions ---------------
-// Fetch and decode next instruction
-static VmInstruction fetchInstruction(emu_virtualMachine* vm)
+static emu_vmInstruction fetchInstruction(emu_virtualMachine* vm)
 {
-	emu_vmInstruction nextInstruction = (emu_vmInstruction)getNext(vm);
-	VmInstruction res = { 0 };
-	res.type = nextInstruction;
-
-	// Figure out the addressing mode
-	switch (nextInstruction)
-	{
-	case emu_vmInstruction_ADC_ABS:
-	case emu_vmInstruction_ADC_ABY:
-	case emu_vmInstruction_ADC_ABX:
-	case emu_vmInstruction_STY_ABS:
-	case emu_vmInstruction_STA_ABS:
-	case emu_vmInstruction_STX_ABS:
-	case emu_vmInstruction_STA_ABY:
-	case emu_vmInstruction_STA_ABX:
-	case emu_vmInstruction_LDY_ABS:
-	case emu_vmInstruction_LDA_ABS:
-	case emu_vmInstruction_LDX_ABS:
-	case emu_vmInstruction_LDA_ABY:
-	case emu_vmInstruction_LDY_ABX:
-	case emu_vmInstruction_LDA_ABX:
-	case emu_vmInstruction_LDX_ABY:
-	case emu_vmInstruction_CMP_ABS:
-	case emu_vmInstruction_CMP_ABY:
-	case emu_vmInstruction_CMP_ABX:
-		res.addressMode = AddressMode_Absolute;
-		break;
-	case emu_vmInstruction_ADC_IMM:
-	case emu_vmInstruction_LDY_IMM:
-	case emu_vmInstruction_LDX_IMM:
-	case emu_vmInstruction_LDA_IMM:
-	case emu_vmInstruction_CMP_IMM:
-		res.addressMode = AddressMode_Immediate;
-		break;
-	case emu_vmInstruction_ADC_ZP:
-	case emu_vmInstruction_ADC_ZPX:
-	case emu_vmInstruction_STY_ZP:
-	case emu_vmInstruction_STA_ZP:
-	case emu_vmInstruction_STX_ZP:
-	case emu_vmInstruction_STY_ZPX:
-	case emu_vmInstruction_STA_ZPX:
-	case emu_vmInstruction_STX_ZPY:
-	case emu_vmInstruction_LDY_ZP:
-	case emu_vmInstruction_LDA_ZP:
-	case emu_vmInstruction_LDX_ZP:
-	case emu_vmInstruction_LDY_ZPX:
-	case emu_vmInstruction_LDA_ZPX:
-	case emu_vmInstruction_LDX_ZPY:
-	case emu_vmInstruction_CMP_ZP:
-	case emu_vmInstruction_CMP_ZPX:
-		res.addressMode = AddressMode_ZeroPage;
-		break;
-	case emu_vmInstruction_BCC_REL:
-		res.addressMode = AddressMode_Relative;
-		break;
-	default:
-		res.addressMode = AddressMode_None;
-		break;
-	}
-
-	switch (res.addressMode)
-	{
-	case AddressMode_ZeroPage:
-	case AddressMode_Immediate:
-		res.instructionLength = 1;
-		break;
-	case AddressMode_Absolute:
-	case AddressMode_Relative:
-		res.instructionLength = 2;
-		break;
-	case AddressMode_None:
-		res.instructionLength = 0;
-		break;
-	}
-
-	if (res.instructionLength == 2)
-	{
-		res.arg0 = getNext(vm);
-		res.arg1 = getNext(vm);
-	}
-	else if (res.instructionLength == 1)
-	{
-		res.arg0 = getNext(vm);
-	}
-
-	// TODO: Implement indexing
-	res.isIndexed = false;
-
-	// Figure out the base type
-	switch (nextInstruction)
-	{
-	case emu_vmInstruction_BRK:
-		res.baseType = BaseInstruction_Break;
-		break;
-	case emu_vmInstruction_CLC:
-		res.baseType = BaseInstruction_ClearFlag;
-		break;
-	case emu_vmInstruction_RTS:
-	case emu_vmInstruction_JMP_IND:
-		res.baseType = BaseInstruction_Jump;
-		break;
-	case emu_vmInstruction_ORA_IZX:
-		break;
-	case emu_vmInstruction_ADC_IZX:
-	case emu_vmInstruction_ADC_ZP:
-	case emu_vmInstruction_ADC_IMM:
-	case emu_vmInstruction_ADC_ABS:
-	case emu_vmInstruction_ADC_IZY:
-	case emu_vmInstruction_ADC_ZPX:
-	case emu_vmInstruction_ADC_ABY:
-	case emu_vmInstruction_ADC_ABX:
-		res.baseType = BaseInstruction_Add;
-		break;
-	case emu_vmInstruction_STA_IZX:
-	case emu_vmInstruction_STY_ZP:
-	case emu_vmInstruction_STA_ZP:
-	case emu_vmInstruction_STX_ZP:
-	case emu_vmInstruction_STY_ABS:
-	case emu_vmInstruction_STA_ABS:
-	case emu_vmInstruction_STX_ABS:
-	case emu_vmInstruction_STA_IZY:
-	case emu_vmInstruction_STY_ZPX:
-	case emu_vmInstruction_STA_ZPX:
-	case emu_vmInstruction_STX_ZPY:
-	case emu_vmInstruction_STA_ABY:
-	case emu_vmInstruction_STA_ABX:
-		res.baseType = BaseInstruction_Store;
-		break;
-	case emu_vmInstruction_LDY_IMM:
-	case emu_vmInstruction_LDA_IZX:
-	case emu_vmInstruction_LDX_IMM:
-	case emu_vmInstruction_LDY_ZP:
-	case emu_vmInstruction_LDA_ZP:
-	case emu_vmInstruction_LDX_ZP:
-	case emu_vmInstruction_LDA_IMM:
-	case emu_vmInstruction_LDY_ABS:
-	case emu_vmInstruction_LDA_ABS:
-	case emu_vmInstruction_LDX_ABS:
-	case emu_vmInstruction_LDA_IZY:
-	case emu_vmInstruction_LDY_ZPX:
-	case emu_vmInstruction_LDA_ZPX:
-	case emu_vmInstruction_LDX_ZPY:
-	case emu_vmInstruction_LDA_ABY:
-	case emu_vmInstruction_LDY_ABX:
-	case emu_vmInstruction_LDA_ABX:
-	case emu_vmInstruction_LDX_ABY:
-		res.baseType = BaseInstruction_Load;
-		break;
-	case emu_vmInstruction_CMP_IZX:
-	case emu_vmInstruction_CMP_ZP:
-	case emu_vmInstruction_CMP_IMM:
-	case emu_vmInstruction_CMP_ABS:
-	case emu_vmInstruction_CMP_IZY:
-	case emu_vmInstruction_CMP_ZPX:
-	case emu_vmInstruction_CMP_ABY:
-	case emu_vmInstruction_CMP_ABX:
-		res.baseType = BaseInstruction_Compare;
-		break;
-	case emu_vmInstruction_BCC_REL:
-		res.baseType = BaseInstruction_Branch;
-		break;
-	}
-
-	// Figure out reg mode
-	switch (nextInstruction)
-	{
-	case emu_vmInstruction_BRK:
-	case emu_vmInstruction_CLC:
-	case emu_vmInstruction_RTS:
-	case emu_vmInstruction_JMP_IND:
-	case emu_vmInstruction_ADC_ZP:
-	case emu_vmInstruction_ADC_IMM:
-	case emu_vmInstruction_ADC_ABS:
-	case emu_vmInstruction_BCC_REL:
-		break;
-	case emu_vmInstruction_ORA_IZX:
-	case emu_vmInstruction_ADC_IZX:
-	case emu_vmInstruction_ADC_ZPX:
-	case emu_vmInstruction_ADC_ABX:
-	case emu_vmInstruction_STX_ZP:
-	case emu_vmInstruction_STX_ABS:
-	case emu_vmInstruction_STX_ZPY:
-	case emu_vmInstruction_LDX_IMM:
-	case emu_vmInstruction_LDX_ZP:
-	case emu_vmInstruction_LDX_ABS:
-	case emu_vmInstruction_LDX_ZPY:
-	case emu_vmInstruction_LDX_ABY:
-		res.regMode = RegX;
-		break;
-	case emu_vmInstruction_ADC_IZY:
-	case emu_vmInstruction_ADC_ABY:
-	case emu_vmInstruction_STY_ZP:
-	case emu_vmInstruction_STY_ABS:
-	case emu_vmInstruction_STY_ZPX:
-	case emu_vmInstruction_LDY_IMM:
-	case emu_vmInstruction_LDY_ZP:
-	case emu_vmInstruction_LDY_ABS:
-	case emu_vmInstruction_LDY_ZPX:
-	case emu_vmInstruction_LDY_ABX:
-		res.regMode = RegY;
-		break;
-	case emu_vmInstruction_STA_IZX:
-	case emu_vmInstruction_STA_ZP:
-	case emu_vmInstruction_STA_ABS:
-	case emu_vmInstruction_STA_IZY:
-	case emu_vmInstruction_STA_ZPX:
-	case emu_vmInstruction_STA_ABY:
-	case emu_vmInstruction_STA_ABX:
-	case emu_vmInstruction_LDA_IZX:
-	case emu_vmInstruction_LDA_ZP:
-	case emu_vmInstruction_LDA_IMM:
-	case emu_vmInstruction_LDA_ABS:
-	case emu_vmInstruction_LDA_IZY:
-	case emu_vmInstruction_LDA_ZPX:
-	case emu_vmInstruction_LDA_ABY:
-	case emu_vmInstruction_LDA_ABX:
-	case emu_vmInstruction_CMP_IZX:
-	case emu_vmInstruction_CMP_ZP:
-	case emu_vmInstruction_CMP_IMM:
-	case emu_vmInstruction_CMP_ABS:
-	case emu_vmInstruction_CMP_IZY:
-	case emu_vmInstruction_CMP_ZPX:
-	case emu_vmInstruction_CMP_ABY:
-	case emu_vmInstruction_CMP_ABX:
-		res.regMode = RegA;
-		break;
-	}
-
-	return res;
+	return (emu_vmInstruction)getNext(vm);
 }
 
-static void executeInstruction(emu_virtualMachine* vm, const VmInstruction* instruction)
+static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruction)
 {
-	switch (instruction->baseType)
+	switch (instruction)
 	{
-	case BaseInstruction_Store:
+	case emu_vmInstruction_STA_ZP:
+	case emu_vmInstruction_STX_ZP:
+	case emu_vmInstruction_STY_ZP:
 	{
-		uint8 address = instruction->arg0;
+		uint8 address = getNext(vm);
+		vm->ram[address] = getRegisterValue(vm, instruction);
+	}
+	break;
+	case emu_vmInstruction_LDA_ZP:
+	case emu_vmInstruction_LDX_ZP:
+	case emu_vmInstruction_LDY_ZP:
+	{
+		uint8 address = getNext(vm);
+		setRegisterValue(vm, instruction, vm->ram[address]);
+	}
+	break;
+	case emu_vmInstruction_LDA_IMM:
+	case emu_vmInstruction_LDX_IMM:
+	case emu_vmInstruction_LDY_IMM:
+	{
+		uint8 value = getNext(vm);
+		setRegisterValue(vm, instruction, value);
+	}
+	break;
+	case emu_vmInstruction_ADC_ZP:
+	{
+		uint8 address = getNext(vm);
+		addWithCarry(vm, vm->ram[address]);
+	}
+	break;
+	case emu_vmInstruction_ADC_IMM:
+	{
+		uint8 value = getNext(vm);
+		addWithCarry(vm, value);
+	}
+	break;
+	case emu_vmInstruction_CMP_ZP:
+	{
+		uint8 address = getNext(vm);
+		compare(vm, vm->ram[address]);
+	}
+	break;
+	case emu_vmInstruction_CMP_IMM:
+	{
+		uint8 value = getNext(vm);
+		compare(vm, value);
+	}
+	break;
+	case emu_vmInstruction_BCC_REL:
+	{
+		uint8 address0 = getNext(vm);
+		uint8 address1 = getNext(vm);
 
-		switch (instruction->regMode)
-		{
-		case RegX:
-			vm->ram[address] = vm->xReg;
-			break;
-		case RegY:
-			vm->ram[address] = vm->yReg;
-			break;
-		case RegA:
-			vm->ram[address] = vm->accumulatorReg;
-			break;
-		}
-	}
-	break;
-	case BaseInstruction_Load:
-	{
-		uint8 value = instruction->arg0;
-		if (instruction->addressMode == AddressMode_ZeroPage)
-		{
-			uint8 address = instruction->arg0;
-			value = vm->ram[address];
-		}
-
-		switch (instruction->regMode)
-		{
-		case RegX:
-			vm->xReg = value;
-			break;
-		case RegY:
-			vm->yReg = value;
-			break;
-		case RegA:
-			vm->accumulatorReg = value;
-			break;
-		}
-	}
-	break;
-	case BaseInstruction_Add:
-	{
-		uint8 value = instruction->arg0;
-		if (instruction->addressMode == AddressMode_ZeroPage)
-		{
-			uint8 address = instruction->arg0;
-			value = vm->ram[address];
-		}
-
-		value += emu_vm_getStatus(vm, emu_vmStatus_Carry);
-		if ((UINT8_MAX - vm->accumulatorReg) < value)
-		{
-			emu_vm_setStatus(vm, emu_vmStatus_Carry);
-		}
-		vm->accumulatorReg += value;
-	}
-	break;
-	case BaseInstruction_ClearFlag:
-	{
-		if (instruction->type == emu_vmInstruction_CLC)
-		{
-			emu_vm_clearStatus(vm, emu_vmStatus_Carry);
-		}
-	}
-	break;
-	case BaseInstruction_Compare:
-	{
-		uint8 value = instruction->arg0;
-		if (instruction->addressMode == AddressMode_ZeroPage)
-		{
-			uint8 address = instruction->arg0;
-			value = vm->ram[address];
-		}
-
-		// Perform unsigned subtraction 
-		if (vm->accumulatorReg > value)
-		{
-			emu_vm_setStatus(vm, emu_vmStatus_Carry);
-		}
-		vm->accumulatorReg -= value;
-	}
-	break;
-	case BaseInstruction_Branch:
-	{
 		// If carry flag is set, jump
 		if (emu_vm_getStatus(vm, emu_vmStatus_Carry))
 		{
-			int16 relativeAddress = ((uint16)instruction->arg0 << 8) | instruction->arg1;
+			int16 relativeAddress = ((uint16)address0 << 8) | address1;
 			// We need to subtract the 2 bytes that our program counter has already incremented
-			vm->programCounter += (relativeAddress - instruction->instructionLength);
+			vm->programCounter += (relativeAddress - 2);
 		}
 	}
 	break;
+	case emu_vmInstruction_CLC:
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+		break;
+	default:
+		g_logger_error("Cannot execute instruction: '%s'", emu_vmInstructions[instruction]);
+		break;
 	}
 }
 
@@ -668,4 +382,62 @@ static uint8 getNext(emu_virtualMachine* vm)
 
 	vm->programCounter++;
 	return nextInstruction;
+}
+
+static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction)
+{
+	switch (instruction)
+	{
+	case emu_vmInstruction_STA_ZP:
+		return vm->accumulatorReg;
+	case emu_vmInstruction_STX_ZP:
+		return vm->xReg;
+	case emu_vmInstruction_STY_ZP:
+		return vm->yReg;
+	}
+
+	g_logger_error("Cannot get register value for instruction '%s'", emu_vmInstructions[instruction]);
+	return 0;
+}
+
+static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value)
+{
+	switch (instruction)
+	{
+	case emu_vmInstruction_LDA_ZP:
+	case emu_vmInstruction_LDA_IMM:
+		vm->accumulatorReg = value;
+		break;
+	case emu_vmInstruction_LDX_IMM:
+	case emu_vmInstruction_LDX_ZP:
+		vm->xReg = value;
+		break;
+	case emu_vmInstruction_LDY_IMM:
+	case emu_vmInstruction_LDY_ZP:
+		vm->yReg = value;
+		break;
+	default:
+		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);
+		break;
+	}
+}
+
+static void addWithCarry(emu_virtualMachine* vm, uint8 value)
+{
+	value += emu_vm_getStatus(vm, emu_vmStatus_Carry);
+	if ((UINT8_MAX - vm->accumulatorReg) < value)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+	}
+	vm->accumulatorReg += value;
+}
+
+static void compare(emu_virtualMachine* vm, uint8 value)
+{
+	// Perform unsigned subtraction 
+	if (vm->accumulatorReg > value)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+	}
+	vm->accumulatorReg -= value;
 }
