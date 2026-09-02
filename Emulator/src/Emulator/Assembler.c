@@ -31,11 +31,29 @@ typedef enum emu_instruction_keyword
 	emu_instruction_keyword_sta,
 
 	emu_instruction_keyword_clc,
-	emu_instruction_keyword_adc,
 
 	emu_instruction_keyword_rts,
-	emu_instruction_keyword_cmp,
 	emu_instruction_keyword_bcc,
+
+	// Logical/Arithmetic commands
+	emu_instruction_keyword_ora,
+	emu_instruction_keyword_and,
+	emu_instruction_keyword_eor,
+	emu_instruction_keyword_adc,
+	emu_instruction_keyword_sbc,
+	emu_instruction_keyword_cmp,
+	emu_instruction_keyword_cpx,
+	emu_instruction_keyword_cpy,
+	emu_instruction_keyword_dec,
+	emu_instruction_keyword_dex,
+	emu_instruction_keyword_dey,
+	emu_instruction_keyword_inc,
+	emu_instruction_keyword_inx,
+	emu_instruction_keyword_iny,
+	emu_instruction_keyword_asl,
+	emu_instruction_keyword_rol,
+	emu_instruction_keyword_lsr,
+	emu_instruction_keyword_ror,
 
 	emu_instruction_keyword_Length,
 	emu_instruction_keyword_NULL,
@@ -52,11 +70,29 @@ const char* emu_instruction_keywords[] = {
 	"sta",
 
 	"clc",
-	"adc",
 
 	"rts",
-	"cmp",
 	"bcc",
+
+	// Logical/Arithmetic commands
+	"ora",
+	"and",
+	"eor",
+	"adc",
+	"sbc",
+	"cmp",
+	"cpx",
+	"cpy",
+	"dec",
+	"dex",
+	"dey",
+	"inc",
+	"inx",
+	"iny",
+	"asl",
+	"rol",
+	"lsr",
+	"ror",
 
 	"LENGTH",
 	"NULL"
