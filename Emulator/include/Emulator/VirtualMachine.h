@@ -122,6 +122,10 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_CPX_IMM = 0xE0,
 	emu_vmInstruction_CPX_ZP = 0xE4,
 	emu_vmInstruction_CPX_ABS = 0xEC,
+	// -- CPY (Compare Y) Instructions --
+	emu_vmInstruction_CPY_IMM = 0xC0,
+	emu_vmInstruction_CPY_ZP = 0xC4,
+	emu_vmInstruction_CPY_ABS = 0xCC,
 	// -- Branch instructions --
 	emu_vmInstruction_BCC_REL = 0x90,
 

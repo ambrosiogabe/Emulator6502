@@ -144,6 +144,10 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_CPX_IMM] = "CPX_IMM";
 	emu_vmInstructions[emu_vmInstruction_CPX_ZP] = "CPX_ZP";
 	emu_vmInstructions[emu_vmInstruction_CPX_ABS] = "CPX_ABS";
+	// -- CPY (Compare Y) Instructions --
+	emu_vmInstructions[emu_vmInstruction_CPY_IMM] = "CPY_IMM";
+	emu_vmInstructions[emu_vmInstruction_CPY_ZP] = "CPY_ZP";
+	emu_vmInstructions[emu_vmInstruction_CPY_ABS] = "CPY_ABS";
 	// -- Branch instructions --
 	emu_vmInstructions[emu_vmInstruction_BCC_REL] = "BCC_REL";
 
@@ -382,6 +386,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION(emu_vmInstruction_CMP_IMM, compare);
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CPX_ZP, compare);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_CPX_IMM, compare);
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CPY_ZP, compare);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_CPY_IMM, compare);
 		// Logical OR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ORA_ZP, logicalOr);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ORA_IMM, logicalOr);
@@ -441,6 +447,8 @@ static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruct
 	case emu_vmInstruction_CPX_IMM:
 		return vm->xReg;
 	case emu_vmInstruction_STY_ZP:
+	case emu_vmInstruction_CPY_ZP:
+	case emu_vmInstruction_CPY_IMM:
 		return vm->yReg;
 	}
 
@@ -466,6 +474,8 @@ static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 		break;
 	case emu_vmInstruction_LDY_IMM:
 	case emu_vmInstruction_LDY_ZP:
+	case emu_vmInstruction_CPY_ZP:
+	case emu_vmInstruction_CPY_IMM:
 		vm->yReg = value;
 		break;
 	default:
