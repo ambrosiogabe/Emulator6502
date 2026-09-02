@@ -160,6 +160,12 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_ASL_ZPX = 0x16,
 	emu_vmInstruction_ASL_ABS = 0x0E,
 	emu_vmInstruction_ASL_ABX = 0x1E,
+	// -- ROL (Rotate Left) Instructions --
+	emu_vmInstruction_ROL_IMP = 0x2A,
+	emu_vmInstruction_ROL_ZP = 0x26,
+	emu_vmInstruction_ROL_ZPX = 0x36,
+	emu_vmInstruction_ROL_ABS = 0x2E,
+	emu_vmInstruction_ROL_ABX = 0x3E,
 	// -- Branch instructions --
 	emu_vmInstruction_BCC_REL = 0x90,
 

@@ -26,7 +26,8 @@ static void increment(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
-static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
+static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
@@ -173,6 +174,12 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_ASL_ZPX] = "ASL_ZPX";
 	emu_vmInstructions[emu_vmInstruction_ASL_ABS] = "ASL_ABS";
 	emu_vmInstructions[emu_vmInstruction_ASL_ABX] = "ASL_ABX";
+	// -- ROL (Rotate Left) Instructions --
+	emu_vmInstructions[emu_vmInstruction_ROL_IMP] = "ROL_IMP";
+	emu_vmInstructions[emu_vmInstruction_ROL_ZP] = "ROL_ZP";
+	emu_vmInstructions[emu_vmInstruction_ROL_ZPX] = "ROL_ZPX";
+	emu_vmInstructions[emu_vmInstruction_ROL_ABS] = "ROL_ABS";
+	emu_vmInstructions[emu_vmInstruction_ROL_ABX] = "ROL_ABX";
 	// -- Branch instructions --
 	emu_vmInstructions[emu_vmInstruction_BCC_REL] = "BCC_REL";
 
@@ -615,5 +622,33 @@ static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction instru
 	else
 	{
 		vm->ram[address] = vm->ram[address] << 1;
+	}
+}
+
+static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address)
+{
+	// Implicit instructions rotate the A register left
+	uint8 value = vm->ram[address];
+	if (instruction == emu_vmInstruction_ROL_IMP)
+	{
+		value = vm->accumulatorReg;
+	}
+
+	// Set carry flag if highest bit is set
+	uint8 oldCarry = emu_vm_getStatus(vm, emu_vmStatus_Carry);
+	if ((value & (1 << 7)) > 0)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+	}
+
+	if (instruction == emu_vmInstruction_ROL_IMP)
+	{
+		vm->accumulatorReg = vm->accumulatorReg << 1;
+		vm->accumulatorReg |= oldCarry;
+	}
+	else
+	{
+		vm->ram[address] = vm->ram[address] << 1;
+		vm->ram[address] |= oldCarry;
 	}
 }
