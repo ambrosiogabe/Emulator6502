@@ -24,6 +24,18 @@ typedef enum emu_vmType
 #define EMU_MAX_INSTRUCTION_OPCODE UINT8_MAX
 extern const char* emu_vmInstructions[];
 
+/**
+* ZP - Zero Page
+* IMP - Implicit
+* ZPX -
+* ZPY -
+* IMM - Immediate
+* ABS - Absolute
+* ABX -
+* ABY -
+* IZX -
+* IZY -
+*/
 typedef enum emu_vmInstruction
 {
 	emu_vmInstruction_BRK = 0x00,
@@ -132,16 +144,22 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_DEC_ABS = 0xCE,
 	emu_vmInstruction_DEC_ABX = 0xDE,
 	// -- DEX/DEY (Decrement X/Y) Instructions --
-	emu_vmInstruction_DEX = 0xCA,
-	emu_vmInstruction_DEY = 0x88,
+	emu_vmInstruction_DEX_IMP = 0xCA,
+	emu_vmInstruction_DEY_IMP = 0x88,
 	// -- INC Instructions
 	emu_vmInstruction_INC_ZP = 0xE6,
 	emu_vmInstruction_INC_ZPX = 0xF6,
 	emu_vmInstruction_INC_ABS = 0xEE,
 	emu_vmInstruction_INC_ABX = 0xFE,
 	// -- INX/INY (Increment X/Y) Instructions --
-	emu_vmInstruction_INX = 0xE8,
-	emu_vmInstruction_INY = 0xC8,
+	emu_vmInstruction_INX_IMP = 0xE8,
+	emu_vmInstruction_INY_IMP = 0xC8,
+	// -- ASL (Arithmetic Shift Left) Instructions --
+	emu_vmInstruction_ASL_IMP = 0x0A,
+	emu_vmInstruction_ASL_ZP = 0x06,
+	emu_vmInstruction_ASL_ZPX = 0x16,
+	emu_vmInstruction_ASL_ABS = 0x0E,
+	emu_vmInstruction_ASL_ABX = 0x1E,
 	// -- Branch instructions --
 	emu_vmInstruction_BCC_REL = 0x90,
 

@@ -26,6 +26,7 @@ static void increment(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
@@ -156,16 +157,22 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_DEC_ABS] = "DEC_ABS";
 	emu_vmInstructions[emu_vmInstruction_DEC_ABX] = "DEC_ABX";
 	// -- DEX/DEY (Decrement X/Y) Instructions --
-	emu_vmInstructions[emu_vmInstruction_DEX] = "DEX";
-	emu_vmInstructions[emu_vmInstruction_DEY] = "DEY";
+	emu_vmInstructions[emu_vmInstruction_DEX_IMP] = "DEX";
+	emu_vmInstructions[emu_vmInstruction_DEY_IMP] = "DEY";
 	// -- INC Instructions
 	emu_vmInstructions[emu_vmInstruction_INC_ZP] = "INC_ZP";
 	emu_vmInstructions[emu_vmInstruction_INC_ZPX] = "INC_ZPX";
 	emu_vmInstructions[emu_vmInstruction_INC_ABS] = "INC_ABS";
 	emu_vmInstructions[emu_vmInstruction_INC_ABX] = "INC_ABX";
 	// -- INX/INY (Increment X/Y) Instructions --
-	emu_vmInstructions[emu_vmInstruction_INX] = "INX";
-	emu_vmInstructions[emu_vmInstruction_INY] = "INY";
+	emu_vmInstructions[emu_vmInstruction_INX_IMP] = "INX";
+	emu_vmInstructions[emu_vmInstruction_INY_IMP] = "INY";
+	// -- ASL (Arithmetic Shift Left) Instructions --
+	emu_vmInstructions[emu_vmInstruction_ASL_IMP] = "ASL_IMP";
+	emu_vmInstructions[emu_vmInstruction_ASL_ZP] = "ASL_ZP";
+	emu_vmInstructions[emu_vmInstruction_ASL_ZPX] = "ASL_ZPX";
+	emu_vmInstructions[emu_vmInstruction_ASL_ABS] = "ASL_ABS";
+	emu_vmInstructions[emu_vmInstruction_ASL_ABX] = "ASL_ABX";
 	// -- Branch instructions --
 	emu_vmInstructions[emu_vmInstruction_BCC_REL] = "BCC_REL";
 
@@ -419,16 +426,21 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Logical XOR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_EOR_ZP, logicalXor);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_EOR_IMM, logicalXor);
-	case emu_vmInstruction_DEX:
+		// Arithmetic Shift Left
+		INSTRUCTION_EXPANSION(emu_vmInstruction_ASL_ZP, arithmeticShiftLeft);
+	case emu_vmInstruction_ASL_IMP:
+		arithmeticShiftLeft(vm, instruction, UINT8_MAX);
+		break;
+	case emu_vmInstruction_DEX_IMP:
 		vm->xReg--;
 		break;
-	case emu_vmInstruction_DEY:
+	case emu_vmInstruction_DEY_IMP:
 		vm->yReg--;
 		break;
-	case emu_vmInstruction_INX:
+	case emu_vmInstruction_INX_IMP:
 		vm->xReg++;
 		break;
-	case emu_vmInstruction_INY:
+	case emu_vmInstruction_INY_IMP:
 		vm->yReg++;
 		break;
 	case emu_vmInstruction_BCC_REL:
@@ -579,4 +591,29 @@ static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	vm->accumulatorReg ^= value;
+}
+
+static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address)
+{
+	// Implicit instructions shift the A register left
+	uint8 value = vm->ram[address];
+	if (instruction == emu_vmInstruction_ASL_IMP)
+	{
+		value = vm->accumulatorReg;
+	}
+
+	// Set carry flag if highest bit is set
+	if ((value & (1 << 7)) > 0)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+	}
+
+	if (instruction == emu_vmInstruction_ASL_IMP)
+	{
+		vm->accumulatorReg = vm->accumulatorReg << 1;
+	}
+	else
+	{
+		vm->ram[address] = vm->ram[address] << 1;
+	}
 }
