@@ -31,6 +31,8 @@ static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address)
 static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void rotateRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 
+static void checkFlagStatuses(emu_virtualMachine* vm, uint8 flagsToCheck, uint8 value);
+
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
 {\
@@ -469,15 +471,19 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		break;
 	case emu_vmInstruction_DEX_IMP:
 		vm->xReg--;
+		checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->xReg);
 		break;
 	case emu_vmInstruction_DEY_IMP:
 		vm->yReg--;
+		checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->yReg);
 		break;
 	case emu_vmInstruction_INX_IMP:
 		vm->xReg++;
+		checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->xReg);
 		break;
 	case emu_vmInstruction_INY_IMP:
 		vm->yReg++;
+		checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->yReg);
 		break;
 	case emu_vmInstruction_BCC_REL:
 	{
@@ -578,7 +584,14 @@ static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 valu
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+	}
+
 	vm->accumulatorReg += value;
+	// TODO: Add overflow flag support
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->accumulatorReg);
 }
 
 static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
@@ -590,7 +603,14 @@ static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+	}
+
 	vm->accumulatorReg += value;
+	// TODO: Add overflow flag support
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->accumulatorReg);
 }
 
 static void compare(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value)
@@ -601,32 +621,43 @@ static void compare(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+	}
+
 	setRegisterValue(vm, instruction, registerValue - value);
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, getRegisterValue(vm, instruction));
 }
 
 static void decrement(emu_virtualMachine* vm, emu_vmInstruction _, uint8 address)
 {
 	vm->ram[address] = vm->ram[address] - 1;
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->ram[address]);
 }
 
 static void increment(emu_virtualMachine* vm, emu_vmInstruction _, uint8 address)
 {
 	vm->ram[address] = vm->ram[address] + 1;
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->ram[address]);
 }
 
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	vm->accumulatorReg |= value;
+	checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
 }
 
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	vm->accumulatorReg &= value;
+	checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
 }
 
 static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	vm->accumulatorReg ^= value;
+	checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
 }
 
 static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address)
@@ -643,14 +674,20 @@ static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction instru
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+	}
 
 	if (instruction == emu_vmInstruction_ASL_IMP)
 	{
 		vm->accumulatorReg = vm->accumulatorReg << 1;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
 	}
 	else
 	{
 		vm->ram[address] = vm->ram[address] << 1;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->ram[address]);
 	}
 }
 
@@ -669,16 +706,22 @@ static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction instruction, ui
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+	}
 
 	if (instruction == emu_vmInstruction_ROL_IMP)
 	{
 		vm->accumulatorReg = vm->accumulatorReg << 1;
 		vm->accumulatorReg |= oldCarry;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
 	}
 	else
 	{
 		vm->ram[address] = vm->ram[address] << 1;
 		vm->ram[address] |= oldCarry;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->ram[address]);
 	}
 }
 
@@ -696,14 +739,20 @@ static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction instruct
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+	}
 
 	if (instruction == emu_vmInstruction_LSR_IMP)
 	{
 		vm->accumulatorReg = vm->accumulatorReg >> 1;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
 	}
 	else
 	{
 		vm->ram[address] = vm->ram[address] >> 1;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->ram[address]);
 	}
 }
 
@@ -722,15 +771,48 @@ static void rotateRight(emu_virtualMachine* vm, emu_vmInstruction instruction, u
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+	}
 
 	if (instruction == emu_vmInstruction_ROR_IMP)
 	{
 		vm->accumulatorReg = vm->accumulatorReg >> 1;
 		vm->accumulatorReg |= (oldCarry << 7);
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
 	}
 	else
 	{
 		vm->ram[address] = vm->ram[address] >> 1;
 		vm->ram[address] |= (oldCarry << 7);
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->ram[address]);
+	}
+}
+
+static void checkFlagStatuses(emu_virtualMachine* vm, uint8 flagsToCheck, uint8 value)
+{
+	if (flagsToCheck & emu_vmStatus_Zero)
+	{
+		if (value == 0)
+		{
+			emu_vm_setStatus(vm, emu_vmStatus_Zero);
+		}
+		else
+		{
+			emu_vm_clearStatus(vm, emu_vmStatus_Zero);
+		}
+	}
+
+	if (flagsToCheck & emu_vmStatus_Negative)
+	{
+		if ((int16)value < 0)
+		{
+			emu_vm_setStatus(vm, emu_vmStatus_Negative);
+		}
+		else
+		{
+			emu_vm_clearStatus(vm, emu_vmStatus_Negative);
+		}
 	}
 }
