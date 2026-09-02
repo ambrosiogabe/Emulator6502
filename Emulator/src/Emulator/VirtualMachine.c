@@ -28,6 +28,7 @@ static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
+static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
@@ -158,16 +159,16 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_DEC_ABS] = "DEC_ABS";
 	emu_vmInstructions[emu_vmInstruction_DEC_ABX] = "DEC_ABX";
 	// -- DEX/DEY (Decrement X/Y) Instructions --
-	emu_vmInstructions[emu_vmInstruction_DEX_IMP] = "DEX";
-	emu_vmInstructions[emu_vmInstruction_DEY_IMP] = "DEY";
+	emu_vmInstructions[emu_vmInstruction_DEX_IMP] = "DEX_IMP";
+	emu_vmInstructions[emu_vmInstruction_DEY_IMP] = "DEY_IMP";
 	// -- INC Instructions
 	emu_vmInstructions[emu_vmInstruction_INC_ZP] = "INC_ZP";
 	emu_vmInstructions[emu_vmInstruction_INC_ZPX] = "INC_ZPX";
 	emu_vmInstructions[emu_vmInstruction_INC_ABS] = "INC_ABS";
 	emu_vmInstructions[emu_vmInstruction_INC_ABX] = "INC_ABX";
 	// -- INX/INY (Increment X/Y) Instructions --
-	emu_vmInstructions[emu_vmInstruction_INX_IMP] = "INX";
-	emu_vmInstructions[emu_vmInstruction_INY_IMP] = "INY";
+	emu_vmInstructions[emu_vmInstruction_INX_IMP] = "INX_IMP";
+	emu_vmInstructions[emu_vmInstruction_INY_IMP] = "INY_IMP";
 	// -- ASL (Arithmetic Shift Left) Instructions --
 	emu_vmInstructions[emu_vmInstruction_ASL_IMP] = "ASL_IMP";
 	emu_vmInstructions[emu_vmInstruction_ASL_ZP] = "ASL_ZP";
@@ -180,6 +181,12 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_ROL_ZPX] = "ROL_ZPX";
 	emu_vmInstructions[emu_vmInstruction_ROL_ABS] = "ROL_ABS";
 	emu_vmInstructions[emu_vmInstruction_ROL_ABX] = "ROL_ABX";
+	// -- LSR (Logical Shift Right) Instructions --
+	emu_vmInstructions[emu_vmInstruction_LSR_IMP] = "LSR_IMP";
+	emu_vmInstructions[emu_vmInstruction_LSR_ZP] = "LSR_ZP";
+	emu_vmInstructions[emu_vmInstruction_LSR_ZPX] = "LSR_ZPX";
+	emu_vmInstructions[emu_vmInstruction_LSR_ABS] = "LSR_ABS";
+	emu_vmInstructions[emu_vmInstruction_LSR_ABX] = "LSR_ABX";
 	// -- Branch instructions --
 	emu_vmInstructions[emu_vmInstruction_BCC_REL] = "BCC_REL";
 
@@ -435,6 +442,16 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION(emu_vmInstruction_EOR_IMM, logicalXor);
 		// Arithmetic Shift Left
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ASL_ZP, arithmeticShiftLeft);
+		// Rotate Left
+		INSTRUCTION_EXPANSION(emu_vmInstruction_ROL_ZP, rotateLeft);
+		// Logical Shift Right
+		INSTRUCTION_EXPANSION(emu_vmInstruction_LSR_ZP, logicalShiftRight);
+	case emu_vmInstruction_LSR_IMP:
+		logicalShiftRight(vm, instruction, UINT8_MAX);
+		break;
+	case emu_vmInstruction_ROL_IMP:
+		rotateLeft(vm, instruction, UINT8_MAX);
+		break;
 	case emu_vmInstruction_ASL_IMP:
 		arithmeticShiftLeft(vm, instruction, UINT8_MAX);
 		break;
@@ -650,5 +667,30 @@ static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction instruction, ui
 	{
 		vm->ram[address] = vm->ram[address] << 1;
 		vm->ram[address] |= oldCarry;
+	}
+}
+
+static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address)
+{
+	// Implicit instructions shift the A register right
+	uint8 value = vm->ram[address];
+	if (instruction == emu_vmInstruction_LSR_IMP)
+	{
+		value = vm->accumulatorReg;
+	}
+
+	// Set carry flag if lowest bit is set
+	if ((value & 1) > 0)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+	}
+
+	if (instruction == emu_vmInstruction_LSR_IMP)
+	{
+		vm->accumulatorReg = vm->accumulatorReg >> 1;
+	}
+	else
+	{
+		vm->ram[address] = vm->ram[address] >> 1;
 	}
 }
