@@ -19,6 +19,7 @@ static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruct
 static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
 static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address);
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void compare(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
@@ -86,6 +87,15 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_ADC_ZPX] = "ADC_ZPX";
 	emu_vmInstructions[emu_vmInstruction_ADC_ABY] = "ADC_ABY";
 	emu_vmInstructions[emu_vmInstruction_ADC_ABX] = "ADC_ABX";
+	// -- SBC Instructions --
+	emu_vmInstructions[emu_vmInstruction_SBC_IMM] = "SBC_IMM";
+	emu_vmInstructions[emu_vmInstruction_SBC_ZP] = "SBC_ZP";
+	emu_vmInstructions[emu_vmInstruction_SBC_ZPX] = "SBC_ZPX";
+	emu_vmInstructions[emu_vmInstruction_SBC_IZX] = "SBC_IZX";
+	emu_vmInstructions[emu_vmInstruction_SBC_IZY] = "SBC_IZY";
+	emu_vmInstructions[emu_vmInstruction_SBC_ABS] = "SBC_ABS";
+	emu_vmInstructions[emu_vmInstruction_SBC_ABX] = "SBC_ABX";
+	emu_vmInstructions[emu_vmInstruction_SBC_ABY] = "SBC_ABY";
 	// -- Store Instructions --
 	emu_vmInstructions[emu_vmInstruction_STA_IZX] = "STA_IZX";
 	emu_vmInstructions[emu_vmInstruction_STY_ZP] = "STY_ZP";
@@ -360,6 +370,9 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Add with carry
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ADC_ZP, addWithCarry);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ADC_IMM, addWithCarry);
+		// Sub with carry
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_SBC_ZP, subtractWithCarry);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_SBC_IMM, subtractWithCarry);
 		// Compare
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CMP_ZP, compare);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_CMP_IMM, compare);
@@ -454,6 +467,18 @@ static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction,
 
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
+	value += emu_vm_getStatus(vm, emu_vmStatus_Carry);
+	if ((UINT8_MAX - vm->accumulatorReg) < value)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+	}
+	vm->accumulatorReg += value;
+}
+
+static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
+{
+	// TODO: Double check that ones' complement works correctly here
+	value = ~value;
 	value += emu_vm_getStatus(vm, emu_vmStatus_Carry);
 	if ((UINT8_MAX - vm->accumulatorReg) < value)
 	{

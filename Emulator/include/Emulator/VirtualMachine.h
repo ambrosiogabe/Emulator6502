@@ -65,6 +65,15 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_ADC_ZPX = 0x75,
 	emu_vmInstruction_ADC_ABY = 0x79,
 	emu_vmInstruction_ADC_ABX = 0x7D,
+	// -- SBC Instructions --
+	emu_vmInstruction_SBC_IMM = 0xE9,
+	emu_vmInstruction_SBC_ZP = 0xE5,
+	emu_vmInstruction_SBC_ZPX = 0xF5,
+	emu_vmInstruction_SBC_IZX = 0xE1,
+	emu_vmInstruction_SBC_IZY = 0xF1,
+	emu_vmInstruction_SBC_ABS = 0xED,
+	emu_vmInstruction_SBC_ABX = 0xFD,
+	emu_vmInstruction_SBC_ABY = 0xF9,
 	// -- Store Instructions --
 	emu_vmInstruction_STA_IZX = 0x81,
 	emu_vmInstruction_STY_ZP = 0x84,
