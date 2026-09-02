@@ -22,6 +22,7 @@ static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value)
 static void compare(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
@@ -58,6 +59,15 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_ORA_ABX] = "ORA_ABX";
 	emu_vmInstructions[emu_vmInstruction_ORA_ABY] = "ORA_ABY";
 	emu_vmInstructions[emu_vmInstruction_ORA_IZX] = "ORA_IZX";
+	// -- XOR Instructions --
+	emu_vmInstructions[emu_vmInstruction_EOR_IMM] = "EOR_IMM";
+	emu_vmInstructions[emu_vmInstruction_EOR_ZP] = "EOR_ZP";
+	emu_vmInstructions[emu_vmInstruction_EOR_ZPX] = "EOR_ZPX";
+	emu_vmInstructions[emu_vmInstruction_EOR_IZX] = "EOR_IZX";
+	emu_vmInstructions[emu_vmInstruction_EOR_IZY] = "EOR_IZY";
+	emu_vmInstructions[emu_vmInstruction_EOR_ABS] = "EOR_ABS";
+	emu_vmInstructions[emu_vmInstruction_EOR_ABX] = "EOR_ABX";
+	emu_vmInstructions[emu_vmInstruction_EOR_ABY] = "EOR_ABY";
 	// -- AND instructions --
 	emu_vmInstructions[emu_vmInstruction_AND_IMM] = "IMM";
 	emu_vmInstructions[emu_vmInstruction_AND_ZP] = "ZP";
@@ -359,6 +369,9 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Logical AND
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_AND_ZP, logicalAnd);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_AND_IMM, logicalAnd);
+		// Logical XOR
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_EOR_ZP, logicalXor);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_EOR_IMM, logicalXor);
 	case emu_vmInstruction_BCC_REL:
 	{
 		uint8 address0 = getNext(vm);
@@ -467,4 +480,9 @@ static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	vm->accumulatorReg &= value;
+}
+
+static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
+{
+	vm->accumulatorReg ^= value;
 }

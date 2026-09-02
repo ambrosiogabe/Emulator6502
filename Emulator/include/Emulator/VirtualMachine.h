@@ -47,6 +47,15 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_AND_ABS = 0x2D,
 	emu_vmInstruction_AND_ABX = 0x3D,
 	emu_vmInstruction_AND_ABY = 0x39,
+	// -- XOR instructions --
+	emu_vmInstruction_EOR_IMM = 0x49,
+	emu_vmInstruction_EOR_ZP = 0x45,
+	emu_vmInstruction_EOR_ZPX = 0x55,
+	emu_vmInstruction_EOR_IZX = 0x41,
+	emu_vmInstruction_EOR_IZY = 0x51,
+	emu_vmInstruction_EOR_ABS = 0x4D,
+	emu_vmInstruction_EOR_ABX = 0x5D,
+	emu_vmInstruction_EOR_ABY = 0x59,
 	// -- ADC instructions --
 	emu_vmInstruction_ADC_IZX = 0x61,
 	emu_vmInstruction_ADC_ZP = 0x65,
