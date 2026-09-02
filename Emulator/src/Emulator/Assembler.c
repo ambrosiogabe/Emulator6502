@@ -132,6 +132,7 @@ emu_stringConstant i_emu_parseStringConstant(emu_parser* parser);
 emu_instruction_keyword i_emu_isInstructionKeyword(emu_parser* parser, emu_symbol symbol);
 uint8 i_emu_parseNumberConstant(emu_parser* parser);
 uint16 i_emu_parseAddressConstant(emu_parser* parser, bool oneByteOnly);
+uint8 i_emu_parseBinaryConstant(emu_parser* parser);
 void i_emu_skipToEndOfLine(emu_parser* parser);
 
 void i_emu_emitOpcode_zeroPage(emu_parser* parser, emu_instruction_keyword keyword);
@@ -431,7 +432,12 @@ uint8 i_emu_parseNumberConstant(emu_parser* parser)
 	// Skip the '#' character
 	i_emu_getChar(parser);
 
-	return i_emu_parseAddressConstant(parser, true);
+	if (i_emu_peek(parser) != '%')
+	{
+		return i_emu_parseAddressConstant(parser, true);
+	}
+
+	return i_emu_parseBinaryConstant(parser);
 }
 
 uint16 i_emu_parseAddressConstant(emu_parser* parser, bool oneByteOnly)
@@ -444,11 +450,12 @@ uint16 i_emu_parseAddressConstant(emu_parser* parser, bool oneByteOnly)
 	bool isInvalid = false;
 	while (!i_emu_isWhitespace(i_emu_peek(parser)))
 	{
-		char digit = i_emu_getChar(parser);
+		char digit = i_emu_peek(parser);
 		if (isHexadecimal)
 		{
 			if (!((digit >= 'a' && digit <= 'f') || (digit >= 'A' && digit <= 'F') || (digit >= '0' && digit <= '9')))
 			{
+				i_emu_logError(parser, "Invalid digit encountered '%c'. Hexadecimal constant must contain only 0-9 or A-F.", digit);
 				isInvalid = true;
 			}
 		}
@@ -456,18 +463,16 @@ uint16 i_emu_parseAddressConstant(emu_parser* parser, bool oneByteOnly)
 		{
 			if (!(digit >= '0' && digit <= '9'))
 			{
+				i_emu_logError(parser, "Invalid digit encountered '%c'. Decimal constant must contain only 0-9.", digit);
 				isInvalid = true;
 			}
 		}
+
+		i_emu_getChar(parser);
 	}
 
 	if (isInvalid)
 	{
-		// Do some gross hacks to display error correctly
-		size_t oldCurrent = parser->current;
-		parser->current = digitStart;
-		i_emu_logErrorLineColumn(parser, parser->currentLine, columnStart, "Invalid digit encountered. Number is invalid.");
-		parser->current = oldCurrent;
 		return 0;
 	}
 
@@ -500,7 +505,61 @@ uint16 i_emu_parseAddressConstant(emu_parser* parser, bool oneByteOnly)
 		// Do some gross hacks to display error correctly
 		size_t oldCurrent = parser->current;
 		parser->current = digitStart;
-		i_emu_logErrorLineColumn(parser, parser->currentLine, columnStart, "Invalid digit encountered. Number is larger than one byte.");
+		i_emu_logErrorLineColumn(parser, parser->currentLine, columnStart, "Number is larger than one byte. Numeric constants can only be 1 byte, or a value of 255 maximum.");
+		parser->current = oldCurrent;
+		return 0;
+	}
+
+	return result;
+}
+
+uint8 i_emu_parseBinaryConstant(emu_parser* parser)
+{
+	size_t columnStart = parser->currentColumn;
+
+	char start = i_emu_getChar(parser);
+	if (start != '%')
+	{
+		i_emu_logError(parser, "Invalid binary constant. Expected to start with '%' and instead started with '%c'.", start);
+		return 0;
+	}
+
+	size_t digitStart = parser->current;
+	bool isInvalid = false;
+	while (!i_emu_isWhitespace(i_emu_peek(parser)))
+	{
+		char digit = i_emu_peek(parser);
+		if (digit != '0' && digit != '1')
+		{
+			i_emu_logError(parser, "Invalid digit encountered '%c'. Binary constant must contain only 0's and 1's.", digit);
+			isInvalid = true;
+		}
+
+		i_emu_getChar(parser);
+	}
+
+	if (isInvalid)
+	{
+		return 0;
+	}
+
+	size_t digitCharLength = parser->current - digitStart;
+	uint16 result = 0;
+	for (size_t i = 0; i < digitCharLength; i++)
+	{
+		char digitChar = parser->file->data[parser->current - i - 1];
+
+		uint16 base = (uint16)pow(2, i);
+		uint16 digit = digitChar == '1' ? 1 : 0;
+		result += base * digit;
+	}
+
+	if (result > UINT8_MAX)
+	{
+		// Do some gross hacks to display error correctly
+		size_t oldCurrent = parser->current;
+		parser->current = digitStart;
+		i_emu_logErrorLineColumn(parser, parser->currentLine, columnStart, "Number is larger than one byte. Numeric constants can only be 1 byte, or a value of 255 maximum.");
 		parser->current = oldCurrent;
 		return 0;
 	}
