@@ -17,8 +17,26 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 static uint8 getNext(emu_virtualMachine* vm);
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
-static void addWithCarry(emu_virtualMachine* vm, uint8 value);
-static void compare(emu_virtualMachine* vm, uint8 value);
+static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address);
+static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void compare(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+
+#define INSTRUCTION_EXPANSION(caseName, function) \
+case caseName:\
+{\
+  uint8 byte = getNext(vm);\
+  function(vm, instruction, byte);\
+}\
+break
+
+#define INSTRUCTION_EXPANSION_RAM(caseName, function) \
+case caseName:\
+{\
+  uint8 address = getNext(vm);\
+  function(vm, instruction, vm->ram[address]);\
+}\
+break
 
 void emu_vm_initDebug()
 {
@@ -31,6 +49,13 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_CLC] = "CLC";
 	emu_vmInstructions[emu_vmInstruction_RTS] = "RTS";
 	// -- OR instructions --
+	emu_vmInstructions[emu_vmInstruction_ORA_IMM] = "ORA_IMM";
+	emu_vmInstructions[emu_vmInstruction_ORA_ZP] = "ORA_ZP";
+	emu_vmInstructions[emu_vmInstruction_ORA_ZPX] = "ORA_ZPX";
+	emu_vmInstructions[emu_vmInstruction_ORA_IZY] = "ORA_IZY";
+	emu_vmInstructions[emu_vmInstruction_ORA_ABS] = "ORA_ABS";
+	emu_vmInstructions[emu_vmInstruction_ORA_ABX] = "ORA_ABX";
+	emu_vmInstructions[emu_vmInstruction_ORA_ABY] = "ORA_ABY";
 	emu_vmInstructions[emu_vmInstruction_ORA_IZX] = "ORA_IZX";
 	// --  ADC instructions --
 	emu_vmInstructions[emu_vmInstruction_ADC_IZX] = "ADC_IZX";
@@ -301,54 +326,26 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 {
 	switch (instruction)
 	{
-	case emu_vmInstruction_STA_ZP:
-	case emu_vmInstruction_STX_ZP:
-	case emu_vmInstruction_STY_ZP:
-	{
-		uint8 address = getNext(vm);
-		vm->ram[address] = getRegisterValue(vm, instruction);
-	}
-	break;
-	case emu_vmInstruction_LDA_ZP:
-	case emu_vmInstruction_LDX_ZP:
-	case emu_vmInstruction_LDY_ZP:
-	{
-		uint8 address = getNext(vm);
-		setRegisterValue(vm, instruction, vm->ram[address]);
-	}
-	break;
-	case emu_vmInstruction_LDA_IMM:
-	case emu_vmInstruction_LDX_IMM:
-	case emu_vmInstruction_LDY_IMM:
-	{
-		uint8 value = getNext(vm);
-		setRegisterValue(vm, instruction, value);
-	}
-	break;
-	case emu_vmInstruction_ADC_ZP:
-	{
-		uint8 address = getNext(vm);
-		addWithCarry(vm, vm->ram[address]);
-	}
-	break;
-	case emu_vmInstruction_ADC_IMM:
-	{
-		uint8 value = getNext(vm);
-		addWithCarry(vm, value);
-	}
-	break;
-	case emu_vmInstruction_CMP_ZP:
-	{
-		uint8 address = getNext(vm);
-		compare(vm, vm->ram[address]);
-	}
-	break;
-	case emu_vmInstruction_CMP_IMM:
-	{
-		uint8 value = getNext(vm);
-		compare(vm, value);
-	}
-	break;
+		// Store
+		INSTRUCTION_EXPANSION(emu_vmInstruction_STA_ZP, storeRamValue);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_STX_ZP, storeRamValue);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_STY_ZP, storeRamValue);
+		// Load
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_LDA_ZP, setRegisterValue);
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_LDX_ZP, setRegisterValue);
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_LDY_ZP, setRegisterValue);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_LDA_IMM, setRegisterValue);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_LDX_IMM, setRegisterValue);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_LDY_IMM, setRegisterValue);
+		// Add with carry
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ADC_ZP, addWithCarry);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_ADC_IMM, addWithCarry);
+		// Compare
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CMP_ZP, compare);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_CMP_IMM, compare);
+		// Logical OR
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ORA_ZP, logicalOr);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_ORA_IMM, logicalOr);
 	case emu_vmInstruction_BCC_REL:
 	{
 		uint8 address0 = getNext(vm);
@@ -363,6 +360,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		}
 	}
 	break;
+
+	// Special
 	case emu_vmInstruction_CLC:
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
 		break;
@@ -422,7 +421,12 @@ static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 	}
 }
 
-static void addWithCarry(emu_virtualMachine* vm, uint8 value)
+static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address)
+{
+	vm->ram[address] = getRegisterValue(vm, instruction);
+}
+
+static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	value += emu_vm_getStatus(vm, emu_vmStatus_Carry);
 	if ((UINT8_MAX - vm->accumulatorReg) < value)
@@ -432,7 +436,7 @@ static void addWithCarry(emu_virtualMachine* vm, uint8 value)
 	vm->accumulatorReg += value;
 }
 
-static void compare(emu_virtualMachine* vm, uint8 value)
+static void compare(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	// Perform unsigned subtraction 
 	if (vm->accumulatorReg > value)
@@ -440,4 +444,9 @@ static void compare(emu_virtualMachine* vm, uint8 value)
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
 	vm->accumulatorReg -= value;
+}
+
+static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
+{
+	vm->accumulatorReg |= value;
 }

@@ -30,6 +30,13 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_CLC = 0x18,
 	emu_vmInstruction_RTS = 0x60,
 	// -- OR instructions --
+	emu_vmInstruction_ORA_IMM = 0x09,
+	emu_vmInstruction_ORA_ZP = 0x05,
+	emu_vmInstruction_ORA_ZPX = 0x15,
+	emu_vmInstruction_ORA_IZY = 0x11,
+	emu_vmInstruction_ORA_ABS = 0x0D,
+	emu_vmInstruction_ORA_ABX = 0x1D,
+	emu_vmInstruction_ORA_ABY = 0x19,
 	emu_vmInstruction_ORA_IZX = 0x01,
 	// -- ADC instructions --
 	emu_vmInstruction_ADC_IZX = 0x61,
