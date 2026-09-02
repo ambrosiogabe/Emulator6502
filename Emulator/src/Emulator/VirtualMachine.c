@@ -21,6 +21,7 @@ static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction,
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void compare(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void decrement(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
@@ -148,6 +149,14 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_CPY_IMM] = "CPY_IMM";
 	emu_vmInstructions[emu_vmInstruction_CPY_ZP] = "CPY_ZP";
 	emu_vmInstructions[emu_vmInstruction_CPY_ABS] = "CPY_ABS";
+	// -- DEC Instructions --
+	emu_vmInstructions[emu_vmInstruction_DEC_ZP] = "DEC_ZP";
+	emu_vmInstructions[emu_vmInstruction_DEC_ZPX] = "DEC_ZPX";
+	emu_vmInstructions[emu_vmInstruction_DEC_ABS] = "DEC_ABS";
+	emu_vmInstructions[emu_vmInstruction_DEC_ABX] = "DEC_ABX";
+	// -- DEX/DEY (Decrement X/Y) Instructions --
+	emu_vmInstructions[emu_vmInstruction_DEX] = "DEX";
+	emu_vmInstructions[emu_vmInstruction_DEY] = "DEY";
 	// -- Branch instructions --
 	emu_vmInstructions[emu_vmInstruction_BCC_REL] = "BCC_REL";
 
@@ -388,6 +397,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION(emu_vmInstruction_CPX_IMM, compare);
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CPY_ZP, compare);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_CPY_IMM, compare);
+		// Decrement
+		INSTRUCTION_EXPANSION(emu_vmInstruction_DEC_ZP, decrement);
 		// Logical OR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ORA_ZP, logicalOr);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ORA_IMM, logicalOr);
@@ -397,6 +408,12 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Logical XOR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_EOR_ZP, logicalXor);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_EOR_IMM, logicalXor);
+	case emu_vmInstruction_DEX:
+		vm->xReg--;
+		break;
+	case emu_vmInstruction_DEY:
+		vm->yReg--;
+		break;
 	case emu_vmInstruction_BCC_REL:
 	{
 		uint8 address0 = getNext(vm);
@@ -520,6 +537,11 @@ static void compare(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
 	setRegisterValue(vm, instruction, registerValue - value);
+}
+
+static void decrement(emu_virtualMachine* vm, emu_vmInstruction _, uint8 address)
+{
+	vm->ram[address] = vm->ram[address] - 1;
 }
 
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)

@@ -126,6 +126,14 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_CPY_IMM = 0xC0,
 	emu_vmInstruction_CPY_ZP = 0xC4,
 	emu_vmInstruction_CPY_ABS = 0xCC,
+	// -- DEC Instructions --
+	emu_vmInstruction_DEC_ZP = 0xC6,
+	emu_vmInstruction_DEC_ZPX = 0xD6,
+	emu_vmInstruction_DEC_ABS = 0xCE,
+	emu_vmInstruction_DEC_ABX = 0xDE,
+	// -- DEX/DEY (Decrement X/Y) Instructions --
+	emu_vmInstruction_DEX = 0xCA,
+	emu_vmInstruction_DEY = 0x88,
 	// -- Branch instructions --
 	emu_vmInstruction_BCC_REL = 0x90,
 
