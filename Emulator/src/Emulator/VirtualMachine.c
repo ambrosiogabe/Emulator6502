@@ -21,6 +21,7 @@ static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction,
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void compare(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
+static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
@@ -57,6 +58,15 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_ORA_ABX] = "ORA_ABX";
 	emu_vmInstructions[emu_vmInstruction_ORA_ABY] = "ORA_ABY";
 	emu_vmInstructions[emu_vmInstruction_ORA_IZX] = "ORA_IZX";
+	// -- AND instructions --
+	emu_vmInstructions[emu_vmInstruction_AND_IMM] = "IMM";
+	emu_vmInstructions[emu_vmInstruction_AND_ZP] = "ZP";
+	emu_vmInstructions[emu_vmInstruction_AND_ZPX] = "ZPX";
+	emu_vmInstructions[emu_vmInstruction_AND_IZX] = "IZX";
+	emu_vmInstructions[emu_vmInstruction_AND_IZY] = "IZY";
+	emu_vmInstructions[emu_vmInstruction_AND_ABS] = "ABS";
+	emu_vmInstructions[emu_vmInstruction_AND_ABX] = "ABX";
+	emu_vmInstructions[emu_vmInstruction_AND_ABY] = "ABY";
 	// --  ADC instructions --
 	emu_vmInstructions[emu_vmInstruction_ADC_IZX] = "ADC_IZX";
 	emu_vmInstructions[emu_vmInstruction_ADC_ZP] = "ADC_ZP";
@@ -346,6 +356,9 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Logical OR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ORA_ZP, logicalOr);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ORA_IMM, logicalOr);
+		// Logical AND
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_AND_ZP, logicalAnd);
+		INSTRUCTION_EXPANSION(emu_vmInstruction_AND_IMM, logicalAnd);
 	case emu_vmInstruction_BCC_REL:
 	{
 		uint8 address0 = getNext(vm);
@@ -449,4 +462,9 @@ static void compare(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
 	vm->accumulatorReg |= value;
+}
+
+static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
+{
+	vm->accumulatorReg &= value;
 }
