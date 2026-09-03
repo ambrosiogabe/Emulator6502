@@ -272,17 +272,6 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, uint8* program, size_t pr
 		return emu_vmError_NullVm;
 	}
 
-	// TODO: Should I allow null programs to reset ROM
-	if (program == NULL)
-	{
-		return emu_vmError_NullProgram;
-	}
-
-	if (programSize == 0)
-	{
-		return emu_vmError_EmptyProgram;
-	}
-
 	if (vm->romSize < programSize)
 	{
 		return emu_vmError_NotEnoughROM;
@@ -300,7 +289,7 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, uint8* program, size_t pr
 	return emu_vmError_None;
 }
 
-emu_vmError emu_vm_initProgram(emu_virtualMachine* vm)
+emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm)
 {
 	// Check assertions
 	if (vm == NULL)
@@ -321,6 +310,14 @@ emu_vmError emu_vm_initProgram(emu_virtualMachine* vm)
 	vm->statusReg = 0;
 
 	g_memory_zeroMem(vm->ram, vm->ramSize);
+	g_memory_zeroMem(vm->rom, vm->romSize);
+
+	// Set first instruction to illegal so no code executes
+	if (vm->romSize > 0)
+	{
+		vm->rom[0] = emu_vmInstruction_ILLEGAL;
+	}
+
 	g_memory_zeroMem(vm->mirrors[0], vm->ramSize);
 	g_memory_zeroMem(vm->mirrors[1], vm->ramSize);
 	g_memory_zeroMem(vm->mirrors[2], vm->ramSize);

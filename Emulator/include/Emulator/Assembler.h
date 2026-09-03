@@ -9,5 +9,6 @@ typedef struct emu_assember_program
 } emu_assembler_program;
 
 emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t programSize);
+void emu_assembler_free(emu_assembler_program* program);
 
 #endif

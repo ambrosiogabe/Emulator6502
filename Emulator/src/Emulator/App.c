@@ -37,8 +37,8 @@ void emu_app_run(emu_app* app)
 	emu_assembler_program program = emu_assembler_assembleProgram(programFile, KB(512));
 	//emu_vm_printOpcodes(program.program, program.size);
 	
+	emu_vm_resetMachine(app->vm);
 	emu_vm_loadProgram(app->vm, program.program, program.size);
-	emu_vm_initProgram(app->vm);
 
 	emu_vmError error = emu_vmError_None;
 	while (error == emu_vmError_None)
@@ -46,7 +46,7 @@ void emu_app_run(emu_app* app)
 		error = emu_vm_tick(app->vm);
 	}
 
-	g_memory_free(program.program);
+	emu_assembler_free(&program);
 }
 
 void emu_app_free(emu_app* app)

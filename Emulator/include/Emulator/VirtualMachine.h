@@ -190,8 +190,6 @@ typedef enum emu_vmError
 	emu_vmError_None = 0,
 	emu_vmError_NotEnoughROM,
 	emu_vmError_NullVm,
-	emu_vmError_NullProgram,
-	emu_vmError_EmptyProgram,
 	emu_vmError_IllegalOpcode,
 	emu_vmError_Break,
 } emu_vmError;
@@ -240,7 +238,7 @@ emu_virtualMachine emu_vm_sizedInit(uint32 romSize, uint32 ramSize, emu_vmType v
 
 emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, uint8* program, size_t programSize);
 
-emu_vmError emu_vm_initProgram(emu_virtualMachine* vm);
+emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm);
 
 emu_vmError emu_vm_tick(emu_virtualMachine* vm);
 
