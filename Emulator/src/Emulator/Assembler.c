@@ -111,13 +111,8 @@ const char* emu_DotKeywords[] = {
 
 typedef enum emu_TokenType
 {
-	emu_DotKeyword_Export,
-	emu_DotKeyword_Segment,
-	emu_DotKeyword_Proc,
-	emu_DotKeyword_EndProc,
-	emu_DotKeyword_Byte,
-	emu_DotKeyword_Length,
-	emu_DotKeyword_NULL
+	emu_TokenType_NULL = 0,
+	emu_TokenType_Length
 } emu_TokenType;
 
 typedef struct emu_Token
