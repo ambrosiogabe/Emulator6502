@@ -9,58 +9,68 @@
 #include <stb/stb_ds.h>
 
 // Internal structures
-typedef enum emu_DotKeyword
+typedef enum emu_ControlCommand
 {
-	emu_DotKeyword_Export,
-	emu_DotKeyword_Segment,
-	emu_DotKeyword_Proc,
-	emu_DotKeyword_EndProc,
-	emu_DotKeyword_Byte,
-	emu_DotKeyword_Length,
-	emu_DotKeyword_NULL
-} emu_DotKeyword;
+	emu_ControlCommand_Export,
+	emu_ControlCommand_Segment,
+	emu_ControlCommand_Proc,
+	emu_ControlCommand_EndProc,
+	emu_ControlCommand_Byte,
+	emu_ControlCommand_Length,
+	emu_ControlCommand_NULL
+} emu_ControlCommand;
 
-typedef enum emu_InstructionKeyword
+const char* emu_ControlCommands[] = {
+	"export",
+	"segment",
+	"proc",
+	"endproc",
+	"byte",
+	"LENGTH",
+	"NULL"
+};
+
+typedef enum emu_Keyword
 {
-	emu_InstructionKeyword_ldx,
-	emu_InstructionKeyword_stx,
+	emu_Keyword_ldx,
+	emu_Keyword_stx,
 
-	emu_InstructionKeyword_ldy,
-	emu_InstructionKeyword_sty,
+	emu_Keyword_ldy,
+	emu_Keyword_sty,
 
-	emu_InstructionKeyword_lda,
-	emu_InstructionKeyword_sta,
+	emu_Keyword_lda,
+	emu_Keyword_sta,
 
-	emu_InstructionKeyword_clc,
+	emu_Keyword_clc,
 
-	emu_InstructionKeyword_rts,
-	emu_InstructionKeyword_bcc,
+	emu_Keyword_rts,
+	emu_Keyword_bcc,
 
 	// Logical/Arithmetic commands
-	emu_InstructionKeyword_ora,
-	emu_InstructionKeyword_and,
-	emu_InstructionKeyword_eor,
-	emu_InstructionKeyword_adc,
-	emu_InstructionKeyword_sbc,
-	emu_InstructionKeyword_cmp,
-	emu_InstructionKeyword_cpx,
-	emu_InstructionKeyword_cpy,
-	emu_InstructionKeyword_dec,
-	emu_InstructionKeyword_dex,
-	emu_InstructionKeyword_dey,
-	emu_InstructionKeyword_inc,
-	emu_InstructionKeyword_inx,
-	emu_InstructionKeyword_iny,
-	emu_InstructionKeyword_asl,
-	emu_InstructionKeyword_rol,
-	emu_InstructionKeyword_lsr,
-	emu_InstructionKeyword_ror,
+	emu_Keyword_ora,
+	emu_Keyword_and,
+	emu_Keyword_eor,
+	emu_Keyword_adc,
+	emu_Keyword_sbc,
+	emu_Keyword_cmp,
+	emu_Keyword_cpx,
+	emu_Keyword_cpy,
+	emu_Keyword_dec,
+	emu_Keyword_dex,
+	emu_Keyword_dey,
+	emu_Keyword_inc,
+	emu_Keyword_inx,
+	emu_Keyword_iny,
+	emu_Keyword_asl,
+	emu_Keyword_rol,
+	emu_Keyword_lsr,
+	emu_Keyword_ror,
 
-	emu_InstructionKeyword_Length,
-	emu_InstructionKeyword_NULL,
-} emu_InstructionKeyword;
+	emu_Keyword_Length,
+	emu_Keyword_NULL,
+} emu_Keyword;
 
-const char* emu_InstructionKeywords[] = {
+const char* emu_Keywords[] = {
 	"ldx",
 	"stx",
 
@@ -99,25 +109,51 @@ const char* emu_InstructionKeywords[] = {
 	"NULL"
 };
 
-const char* emu_DotKeywords[] = {
-	"export",
-	"segment",
-	"proc",
-	"endproc",
-	"byte",
-	"LENGTH",
-	"NULL"
-};
-
 typedef enum emu_TokenType
 {
 	emu_TokenType_NULL = 0,
+	emu_TokenType_ControlCommand,
+	emu_TokenType_Keyword,
+	emu_TokenType_Comment,
+	emu_TokenType_Symbol,
+	emu_TokenType_String,
+	emu_TokenType_Label,
+	emu_TokenType_Comma,
+	emu_TokenType_ByteConstant,
+	emu_TokenType_TwoByteConstant,
 	emu_TokenType_Length
 } emu_TokenType;
 
+const char* emu_TokenTypes[] = {
+	"NULL",
+	"ControlCommand",
+	"Keyword",
+	"Comment",
+	"Symbol",
+	"String",
+	"Label",
+	"Comma",
+	"ByteConstant",
+	"TwoByteConstant",
+	"Length",
+};
+
+typedef union emu_TokenData
+{
+	uint8 byteConstant;
+	uint16 twoByteConstant;
+	emu_ControlCommand controlCommand;
+	emu_Keyword keyword;
+} emu_TokenData;
+
 typedef struct emu_Token
 {
-	uint16 foo;
+	emu_TokenType type;
+	size_t start;
+	size_t length;
+	size_t line;
+	size_t column;
+	emu_TokenData data;
 } emu_Token;
 
 typedef struct emu_PatchLocation
@@ -151,11 +187,12 @@ typedef struct emu_Parser
 	size_t currentColumn;
 	size_t lastSymbolStart;
 
-	emu_InstructionKeyword currentInstruction;
+	emu_Keyword currentInstruction;
 	bool expectingSymbol;
 	bool expectingString;
 	emu_PatchLocation* patches;
 	emu_Label* labels;
+	emu_Token* tokens;
 } emu_Parser;
 
 typedef struct emu_Symbol
@@ -171,39 +208,43 @@ typedef struct emu_StringConstant
 } emu_StringConstant;
 
 // Internal functions
+static emu_Token emu_parseToken(emu_Parser* parser);
+static emu_Token emu_makeToken(emu_TokenType tokenType, size_t start, size_t end, size_t line, size_t column, emu_TokenData data);
 
 /**
 * Parses from 'current' to the next whitespace character and stores the result in 'symbolStart' and 'symbolLength'
 */
-emu_Symbol emu_parseSymbol(emu_Parser* parser);
-emu_DotKeyword emu_parseDotKeyword(emu_Parser* parser);
-emu_StringConstant emu_parseStringConstant(emu_Parser* parser);
-emu_InstructionKeyword emu_isInstructionKeyword(emu_Parser* parser, emu_Symbol symbol);
-uint8 emu_parseNumberConstant(emu_Parser* parser);
-uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly);
-uint8 emu_parseBinaryConstant(emu_Parser* parser);
-void emu_skipToEndOfLine(emu_Parser* parser);
+static emu_Symbol emu_parseSymbol(emu_Parser* parser);
+static emu_ControlCommand emu_parseControlCommand(emu_Parser* parser);
+static emu_StringConstant emu_parseStringConstant(emu_Parser* parser);
+static emu_Keyword emu_isKeyword(emu_Parser* parser, emu_Symbol symbol);
+static uint8 emu_parseNumberConstant(emu_Parser* parser);
+static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly);
+static uint8 emu_parseBinaryConstant(emu_Parser* parser);
+static void emu_skipToEndOfLine(emu_Parser* parser);
 
-void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_InstructionKeyword keyword);
-void emu_emitOpcode_immediate(emu_Parser* parser, emu_InstructionKeyword keyword);
-void emu_emitOpcode(emu_Parser* parser, emu_vmInstruction opcode);
+static void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_Keyword keyword);
+static void emu_emitOpcode_immediate(emu_Parser* parser, emu_Keyword keyword);
+static void emu_emitOpcode(emu_Parser* parser, emu_vmInstruction opcode);
 // You can only load a 1 byte constant into the parser
-void emu_emitConstant(emu_Parser* parser, uint8 constant);
+static void emu_emitConstant(emu_Parser* parser, uint8 constant);
 
-char emu_getChar(emu_Parser* parser);
-void emu_expectChar(emu_Parser* parser, char expected);
-char emu_peek(emu_Parser* parser);
-char emu_peekMulti(emu_Parser* parser, uint8 offset);
-void emu_skip(emu_Parser* parser, size_t skipAmount);
-char emu_toUpper(char c);
+static char emu_getChar(emu_Parser* parser);
+static void emu_expectChar(emu_Parser* parser, char expected);
+static char emu_peek(emu_Parser* parser);
+static char emu_peekMulti(emu_Parser* parser, uint8 offset);
+static void emu_skip(emu_Parser* parser, size_t skipAmount);
+static char emu_toUpper(char c);
 
-bool emu_isWhitespace(char c);
-bool emu_isSymbolStart(char c);
-bool emu_isSymbolChar(char c);
+static bool emu_isWhitespace(char c);
+static bool emu_isSymbolStart(char c);
+static bool emu_isSymbolChar(char c);
 
-void emu_logError(emu_Parser* parser, const char* fmtString, ...);
-void emu_logErrorLineColumn(emu_Parser* parser, size_t line, size_t column, const char* fmtString, ...);
-void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size_t column, const char* fmtString, va_list args);
+static void emu_logError(emu_Parser* parser, const char* fmtString, ...);
+static void emu_logErrorLineColumn(emu_Parser* parser, size_t line, size_t column, const char* fmtString, ...);
+static void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size_t column, const char* fmtString, va_list args);
+
+static void emu_debugPrintToken(emu_Parser* parser, emu_Token* token);
 
 // Public functions
 emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t programSize)
@@ -223,9 +264,10 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 		.programSize = programSize,
 		.currentColumn = 1,
 		.currentLine = 1,
-		.currentInstruction = emu_InstructionKeyword_NULL,
+		.currentInstruction = emu_Keyword_NULL,
 		.patches = NULL,
 		.labels = NULL,
+		.tokens = NULL,
 	};
 
 	for (size_t i = 0; i < file.data_size; i++)
@@ -237,116 +279,14 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 			continue;
 		}
 
-		char c = emu_peek(&parser);
+		emu_Token token = emu_parseToken(&parser);
+		stbds_arrput(parser.tokens, token);
+	}
 
-		// Check expectations
-		if (parser.expectingSymbol && !emu_isSymbolStart(c))
-		{
-			emu_logError(&parser, "Expected symbol instead got '%c'", c);
-			parser.expectingSymbol = false;
-		}
-		else if (parser.expectingString && c != '"')
-		{
-			emu_logError(&parser, "Expected string instead got '%c'", c);
-			parser.expectingString = false;
-		}
-
-		switch (c)
-		{
-		case ';':
-			emu_skipToEndOfLine(&parser);
-			break;
-		case '.':
-		{
-			emu_DotKeyword keyword = emu_parseDotKeyword(&parser);
-		}
-		break;
-		case '"':
-		{
-			emu_StringConstant strConstant = emu_parseStringConstant(&parser);
-			parser.expectingString = false;
-		}
-		break;
-		case '#':
-			// Parse number constant
-		{
-			uint8 numberConstant = emu_parseNumberConstant(&parser);
-			emu_emitOpcode_immediate(&parser, parser.currentInstruction);
-			emu_emitConstant(&parser, numberConstant);
-		}
-		break;
-		case '$':
-			// Parse address constant
-		{
-			uint8 numberConstant = (uint8)emu_parseAddressConstant(&parser, false);
-			emu_emitOpcode_zeroPage(&parser, parser.currentInstruction);
-			emu_emitConstant(&parser, numberConstant);
-		}
-		break;
-		default:
-			if (emu_isSymbolStart(c))
-			{
-				emu_Symbol symbol = emu_parseSymbol(&parser);
-				emu_InstructionKeyword instruction = emu_isInstructionKeyword(&parser, symbol);
-				if (instruction != emu_InstructionKeyword_NULL)
-				{
-					parser.currentInstruction = instruction;
-				}
-				else
-				{
-					// If we're expecting a symbol, we may need to record the location to patch later
-					if (parser.expectingSymbol)
-					{
-						if (parser.currentInstruction == emu_InstructionKeyword_bcc)
-						{
-							emu_emitOpcode(&parser, emu_vmInstruction_BCC_REL);
-
-							// Record the location of this patch
-							char* symbolString = g_memory_allocate(symbol.length + 1);
-							g_memory_copyMem(symbolString, parser.file->data + symbol.start, symbol.length);
-							symbolString[symbol.length] = '\0';
-							emu_PatchLocation patch = {
-								.label = symbolString,
-								.programIndex = parser.programIndex,
-								.originalCodeIndex = symbol.start,
-								.originalCodeColumn = parser.currentColumn,
-								.originalCodeLine = parser.currentLine,
-							};
-							// Increment 2 bytes to save room for the patched location
-							parser.programIndex += 2;
-							stbds_arrput(parser.patches, patch);
-						}
-					}
-					// Otherwise we're declaring a new symbol and need to follow it with a ':'
-					else
-					{
-						emu_expectChar(&parser, ':');
-						// Record the location of this label
-						char* symbolString = g_memory_allocate(symbol.length + 1);
-						g_memory_copyMem(symbolString, parser.file->data + symbol.start, symbol.length);
-						symbolString[symbol.length] = '\0';
-						stbds_shput(parser.labels, symbolString, parser.programIndex);
-					}
-				}
-
-				// Make sure to reset expectations if needed
-				switch (instruction)
-				{
-				case emu_InstructionKeyword_bcc:
-					parser.expectingSymbol = true;
-					break;
-				default:
-					parser.expectingSymbol = false;
-					break;
-				}
-			}
-			else
-			{
-				emu_getChar(&parser);
-				g_logger_warning("Parser does not know what to do with symbol: '%c'", c);
-			}
-			break;
-		}
+	// Print all tokens
+	for (size_t i = 0; i < stbds_arrlen(parser.tokens); i++)
+	{
+		emu_debugPrintToken(&parser, parser.tokens + i);
 	}
 
 	// Patch all the needed patches
@@ -378,6 +318,7 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 
 	stbds_arrfree(parser.patches);
 	stbds_shfree(parser.labels);
+	stbds_arrfree(parser.tokens);
 
 	emu_file_free(&file);
 
@@ -389,7 +330,135 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 }
 
 // Internal definitions
-emu_Symbol emu_parseSymbol(emu_Parser* parser)
+static emu_Token emu_parseToken(emu_Parser* parser)
+{
+	size_t start = parser->current;
+	size_t line = parser->currentLine;
+	size_t column = parser->currentColumn;
+	char c = emu_peek(parser);
+
+	// Check expectations
+	if (parser->expectingSymbol && !emu_isSymbolStart(c))
+	{
+		emu_logError(parser, "Expected symbol instead got '%c'", c);
+		parser->expectingSymbol = false;
+	}
+	else if (parser->expectingString && c != '"')
+	{
+		emu_logError(parser, "Expected string instead got '%c'", c);
+		parser->expectingString = false;
+	}
+
+	switch (c)
+	{
+	case ';':
+	{
+		emu_skipToEndOfLine(parser);
+		return emu_makeToken(emu_TokenType_Comment, start, parser->current - 1, line, column, (emu_TokenData) { 0 });
+	}
+	case '.':
+	{
+		emu_ControlCommand keyword = emu_parseControlCommand(parser);
+		return emu_makeToken(emu_TokenType_ControlCommand, start, parser->current, line, column, (emu_TokenData) { .controlCommand = keyword });
+	}
+	case '"':
+	{
+		emu_StringConstant strConstant = emu_parseStringConstant(parser);
+		parser->expectingString = false;
+		return emu_makeToken(emu_TokenType_String, start, parser->current, line, column, (emu_TokenData) { 0 });
+	}
+	case '#':
+	{
+		uint8 numberConstant = emu_parseNumberConstant(parser);
+		emu_emitOpcode_immediate(parser, parser->currentInstruction);
+		emu_emitConstant(parser, numberConstant);
+		return emu_makeToken(emu_TokenType_ByteConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
+	}
+	case '$':
+	{
+		uint8 numberConstant = (uint8)emu_parseAddressConstant(parser, false);
+		emu_emitOpcode_zeroPage(parser, parser->currentInstruction);
+		emu_emitConstant(parser, numberConstant);
+		return emu_makeToken(emu_TokenType_ByteConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
+	}
+	default:
+		if (emu_isSymbolStart(c))
+		{
+			emu_Symbol symbol = emu_parseSymbol(parser);
+			emu_Keyword instruction = emu_isKeyword(parser, symbol);
+			if (instruction != emu_Keyword_NULL)
+			{
+				parser->currentInstruction = instruction;
+				if (instruction == emu_Keyword_bcc)
+				{
+					parser->expectingSymbol = true;
+				}
+				return emu_makeToken(emu_TokenType_Keyword, start, parser->current, line, column, (emu_TokenData) { .keyword = instruction });
+			}
+			else
+			{
+				// If we're expecting a symbol, we may need to record the location to patch later
+				if (parser->expectingSymbol)
+				{
+					if (parser->currentInstruction == emu_Keyword_bcc)
+					{
+						emu_emitOpcode(parser, emu_vmInstruction_BCC_REL);
+
+						// Record the location of this patch
+						char* symbolString = g_memory_allocate(symbol.length + 1);
+						g_memory_copyMem(symbolString, parser->file->data + symbol.start, symbol.length);
+						symbolString[symbol.length] = '\0';
+						emu_PatchLocation patch = {
+							.label = symbolString,
+							.programIndex = parser->programIndex,
+							.originalCodeIndex = symbol.start,
+							.originalCodeColumn = parser->currentColumn,
+							.originalCodeLine = parser->currentLine,
+						};
+						// Increment 2 bytes to save room for the patched location
+						parser->programIndex += 2;
+						stbds_arrput(parser->patches, patch);
+					}
+				}
+				// Otherwise we're declaring a new symbol and need to follow it with a ':'
+				else
+				{
+					emu_expectChar(parser, ':');
+					// Record the location of this label
+					char* symbolString = g_memory_allocate(symbol.length + 1);
+					g_memory_copyMem(symbolString, parser->file->data + symbol.start, symbol.length);
+					symbolString[symbol.length] = '\0';
+					stbds_shput(parser->labels, symbolString, parser->programIndex);
+				}
+			}
+
+			// Make sure to reset expectations if needed
+			parser->expectingSymbol = false;
+			return emu_makeToken(emu_TokenType_Symbol, start, parser->current, line, column, (emu_TokenData) { 0 });
+		}
+		else
+		{
+			emu_getChar(parser);
+			g_logger_warning("Parser does not know what to do with symbol: '%c'", c);
+			return emu_makeToken(emu_TokenType_NULL, start, parser->current, line, column, (emu_TokenData) { 0 });
+		}
+	}
+}
+
+static emu_Token emu_makeToken(emu_TokenType tokenType, size_t start, size_t end, size_t line, size_t column, emu_TokenData data)
+{
+	return (emu_Token)
+	{
+		.type = tokenType,
+			.start = start,
+			.length = end - start,
+			.line = line,
+			.column = column,
+			.data = data,
+	};
+}
+
+static emu_Symbol emu_parseSymbol(emu_Parser* parser)
 {
 	emu_Symbol symbol = {
 		.start = parser->current,
@@ -405,18 +474,18 @@ emu_Symbol emu_parseSymbol(emu_Parser* parser)
 	return symbol;
 }
 
-emu_DotKeyword emu_parseDotKeyword(emu_Parser* parser)
+static emu_ControlCommand emu_parseControlCommand(emu_Parser* parser)
 {
 	// Parse the '.'
 	emu_getChar(parser);
 
-	for (size_t i = 0; i < emu_DotKeyword_Length; i++)
+	for (size_t i = 0; i < emu_ControlCommand_Length; i++)
 	{
-		size_t keywordLength = strlen(emu_DotKeywords[i]);
+		size_t keywordLength = strlen(emu_ControlCommands[i]);
 		bool isKeyword = true;
 		for (size_t offset = 0; offset < keywordLength; offset++)
 		{
-			if (emu_DotKeywords[i][offset] != emu_peekMulti(parser, offset))
+			if (emu_ControlCommands[i][offset] != emu_peekMulti(parser, offset))
 			{
 				isKeyword = false;
 				break;
@@ -428,23 +497,23 @@ emu_DotKeyword emu_parseDotKeyword(emu_Parser* parser)
 			emu_skip(parser, keywordLength);
 			switch (i)
 			{
-			case emu_DotKeyword_Export:
-			case emu_DotKeyword_Proc:
+			case emu_ControlCommand_Export:
+			case emu_ControlCommand_Proc:
 				parser->expectingSymbol = true;
 				break;
-			case emu_DotKeyword_Segment:
+			case emu_ControlCommand_Segment:
 				parser->expectingString = true;
 				break;
 			}
 
-			return (emu_DotKeyword)i;
+			return (emu_ControlCommand)i;
 		}
 	}
 
-	return emu_DotKeyword_NULL;
+	return emu_ControlCommand_NULL;
 }
 
-emu_StringConstant emu_parseStringConstant(emu_Parser* parser)
+static emu_StringConstant emu_parseStringConstant(emu_Parser* parser)
 {
 	size_t strColumnStart = parser->currentColumn;
 
@@ -476,7 +545,7 @@ emu_StringConstant emu_parseStringConstant(emu_Parser* parser)
 	return strConstant;
 }
 
-uint8 emu_parseNumberConstant(emu_Parser* parser)
+static uint8 emu_parseNumberConstant(emu_Parser* parser)
 {
 	// Skip the '#' character
 	emu_getChar(parser);
@@ -489,7 +558,7 @@ uint8 emu_parseNumberConstant(emu_Parser* parser)
 	return emu_parseBinaryConstant(parser);
 }
 
-uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
+static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
 {
 	size_t columnStart = parser->currentColumn;
 
@@ -562,7 +631,7 @@ uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
 	return result;
 }
 
-uint8 emu_parseBinaryConstant(emu_Parser* parser)
+static uint8 emu_parseBinaryConstant(emu_Parser* parser)
 {
 	size_t columnStart = parser->currentColumn;
 
@@ -616,20 +685,20 @@ uint8 emu_parseBinaryConstant(emu_Parser* parser)
 	return result;
 }
 
-emu_InstructionKeyword emu_isInstructionKeyword(emu_Parser* parser, emu_Symbol symbol)
+static emu_Keyword emu_isKeyword(emu_Parser* parser, emu_Symbol symbol)
 {
 	if (symbol.length != 3)
 	{
-		return emu_InstructionKeyword_NULL;
+		return emu_Keyword_NULL;
 	}
 
-	for (size_t i = 0; i < emu_InstructionKeyword_Length; i++)
+	for (size_t i = 0; i < emu_Keyword_Length; i++)
 	{
 		bool isKeyword = true;
 		for (size_t offset = 0; offset < 3; offset++)
 		{
 			char c = parser->file->data[symbol.start + offset];
-			if (emu_toUpper(emu_InstructionKeywords[i][offset]) != emu_toUpper(c))
+			if (emu_toUpper(emu_Keywords[i][offset]) != emu_toUpper(c))
 			{
 				isKeyword = false;
 				break;
@@ -638,14 +707,14 @@ emu_InstructionKeyword emu_isInstructionKeyword(emu_Parser* parser, emu_Symbol s
 
 		if (isKeyword)
 		{
-			return (emu_InstructionKeyword)i;
+			return (emu_Keyword)i;
 		}
 	}
 
-	return emu_InstructionKeyword_NULL;
+	return emu_Keyword_NULL;
 }
 
-void emu_skipToEndOfLine(emu_Parser* parser)
+static void emu_skipToEndOfLine(emu_Parser* parser)
 {
 	while (emu_peek(parser) != '\n')
 	{
@@ -656,38 +725,38 @@ void emu_skipToEndOfLine(emu_Parser* parser)
 	emu_getChar(parser);
 }
 
-void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_InstructionKeyword keyword)
+static void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_Keyword keyword)
 {
 	switch (keyword)
 	{
-	case emu_InstructionKeyword_ldx:
+	case emu_Keyword_ldx:
 		emu_emitOpcode(parser, emu_vmInstruction_LDX_ZP);
 		break;
-	case emu_InstructionKeyword_stx:
+	case emu_Keyword_stx:
 		emu_emitOpcode(parser, emu_vmInstruction_STX_ZP);
 		break;
-	case emu_InstructionKeyword_ldy:
+	case emu_Keyword_ldy:
 		emu_emitOpcode(parser, emu_vmInstruction_LDY_ZP);
 		break;
-	case emu_InstructionKeyword_sty:
+	case emu_Keyword_sty:
 		emu_emitOpcode(parser, emu_vmInstruction_STY_ZP);
 		break;
-	case emu_InstructionKeyword_lda:
+	case emu_Keyword_lda:
 		emu_emitOpcode(parser, emu_vmInstruction_LDA_ZP);
 		break;
-	case emu_InstructionKeyword_sta:
+	case emu_Keyword_sta:
 		emu_emitOpcode(parser, emu_vmInstruction_STA_ZP);
 		break;
-	case emu_InstructionKeyword_clc:
+	case emu_Keyword_clc:
 		emu_emitOpcode(parser, emu_vmInstruction_CLC);
 		break;
-	case emu_InstructionKeyword_adc:
+	case emu_Keyword_adc:
 		emu_emitOpcode(parser, emu_vmInstruction_ADC_ZP);
 		break;
-	case emu_InstructionKeyword_rts:
+	case emu_Keyword_rts:
 		emu_emitOpcode(parser, emu_vmInstruction_RTS);
 		break;
-	case emu_InstructionKeyword_cmp:
+	case emu_Keyword_cmp:
 		emu_emitOpcode(parser, emu_vmInstruction_CMP_ZP);
 		break;
 	default:
@@ -695,40 +764,40 @@ void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_InstructionKeyword keyword)
 	}
 }
 
-void emu_emitOpcode_immediate(emu_Parser* parser, emu_InstructionKeyword keyword)
+static void emu_emitOpcode_immediate(emu_Parser* parser, emu_Keyword keyword)
 {
 	switch (keyword)
 	{
-	case emu_InstructionKeyword_ldx:
+	case emu_Keyword_ldx:
 		emu_emitOpcode(parser, emu_vmInstruction_LDX_IMM);
 		break;
-	case emu_InstructionKeyword_ldy:
+	case emu_Keyword_ldy:
 		emu_emitOpcode(parser, emu_vmInstruction_LDY_IMM);
 		break;
-	case emu_InstructionKeyword_lda:
+	case emu_Keyword_lda:
 		emu_emitOpcode(parser, emu_vmInstruction_LDA_IMM);
 		break;
-	case emu_InstructionKeyword_clc:
+	case emu_Keyword_clc:
 		emu_emitOpcode(parser, emu_vmInstruction_CLC);
 		break;
-	case emu_InstructionKeyword_adc:
+	case emu_Keyword_adc:
 		emu_emitOpcode(parser, emu_vmInstruction_ADC_IMM);
 		break;
-	case emu_InstructionKeyword_rts:
+	case emu_Keyword_rts:
 		emu_emitOpcode(parser, emu_vmInstruction_RTS);
 		break;
-	case emu_InstructionKeyword_cmp:
+	case emu_Keyword_cmp:
 		emu_emitOpcode(parser, emu_vmInstruction_CMP_IMM);
 		break;
-	case emu_InstructionKeyword_stx:
-	case emu_InstructionKeyword_sty:
-	case emu_InstructionKeyword_sta:
+	case emu_Keyword_stx:
+	case emu_Keyword_sty:
+	case emu_Keyword_sta:
 	default:
 		g_logger_warning("Cannot emit invalid instruction.");
 	}
 }
 
-void emu_emitOpcode(emu_Parser* parser, emu_vmInstruction opcode)
+static void emu_emitOpcode(emu_Parser* parser, emu_vmInstruction opcode)
 {
 	if (parser->programIndex >= parser->programSize)
 	{
@@ -740,7 +809,7 @@ void emu_emitOpcode(emu_Parser* parser, emu_vmInstruction opcode)
 	parser->programIndex++;
 }
 
-void emu_emitConstant(emu_Parser* parser, uint8 constant)
+static void emu_emitConstant(emu_Parser* parser, uint8 constant)
 {
 	if (parser->programIndex >= parser->programSize)
 	{
@@ -752,7 +821,7 @@ void emu_emitConstant(emu_Parser* parser, uint8 constant)
 	parser->programIndex++;
 }
 
-char emu_getChar(emu_Parser* parser)
+static char emu_getChar(emu_Parser* parser)
 {
 	char result = emu_peek(parser);
 	parser->current++;
@@ -767,7 +836,7 @@ char emu_getChar(emu_Parser* parser)
 	return result;
 }
 
-void emu_expectChar(emu_Parser* parser, char expected)
+static void emu_expectChar(emu_Parser* parser, char expected)
 {
 	char actual = emu_peek(parser);
 	if (actual != expected)
@@ -793,12 +862,12 @@ void emu_expectChar(emu_Parser* parser, char expected)
 	emu_getChar(parser);
 }
 
-char emu_peek(emu_Parser* parser)
+static char emu_peek(emu_Parser* parser)
 {
 	return emu_peekMulti(parser, 0);
 }
 
-char emu_peekMulti(emu_Parser* parser, uint8 offset)
+static char emu_peekMulti(emu_Parser* parser, uint8 offset)
 {
 	if (parser->current + offset >= parser->file->data_size)
 	{
@@ -808,7 +877,7 @@ char emu_peekMulti(emu_Parser* parser, uint8 offset)
 	return parser->file->data[parser->current + offset];
 }
 
-void emu_skip(emu_Parser* parser, size_t skipAmount)
+static void emu_skip(emu_Parser* parser, size_t skipAmount)
 {
 	for (size_t i = 0; i < skipAmount; i++)
 	{
@@ -816,7 +885,7 @@ void emu_skip(emu_Parser* parser, size_t skipAmount)
 	}
 }
 
-char emu_toUpper(char c)
+static char emu_toUpper(char c)
 {
 	if (c >= 'a' && c <= 'z')
 	{
@@ -826,22 +895,22 @@ char emu_toUpper(char c)
 	return c;
 }
 
-bool emu_isWhitespace(char c)
+static bool emu_isWhitespace(char c)
 {
 	return c == ' ' || c == '\n' || c == '\r' || c == '\t' || c == '\0';
 }
 
-bool emu_isSymbolStart(char c)
+static bool emu_isSymbolStart(char c)
 {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == '.';
 }
 
-bool emu_isSymbolChar(char c)
+static bool emu_isSymbolChar(char c)
 {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '.';
 }
 
-void emu_logError(emu_Parser* parser, const char* fmtString, ...)
+static void emu_logError(emu_Parser* parser, const char* fmtString, ...)
 {
 	va_list args;
 	va_start(args, fmtString);
@@ -849,7 +918,7 @@ void emu_logError(emu_Parser* parser, const char* fmtString, ...)
 	va_end(args);
 }
 
-void emu_logErrorLineColumn(emu_Parser* parser, size_t line, size_t column, const char* fmtString, ...)
+static void emu_logErrorLineColumn(emu_Parser* parser, size_t line, size_t column, const char* fmtString, ...)
 {
 	static char messageBuffer[1'024];
 	va_list args;
@@ -858,7 +927,7 @@ void emu_logErrorLineColumn(emu_Parser* parser, size_t line, size_t column, cons
 	va_end(args);
 }
 
-void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size_t column, const char* fmtString, va_list args)
+static void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size_t column, const char* fmtString, va_list args)
 {
 	static char messageBuffer[1'024];
 	int numChars = vsnprintf(messageBuffer, sizeof(messageBuffer), fmtString, args);
@@ -898,4 +967,16 @@ void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size_t colu
 	);
 
 	printf("%s\n", fullErrorBuffer);
+}
+
+static void emu_debugPrintToken(emu_Parser* parser, emu_Token* token)
+{
+	g_logger_info(
+		"Token<%s:%d:%d>: '%.*s'",
+		emu_TokenTypes[token->type],
+		token->line,
+		token->column,
+		token->length,
+		parser->file->data + token->start
+	);
 }
