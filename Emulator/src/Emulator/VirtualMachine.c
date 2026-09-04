@@ -321,6 +321,8 @@ emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm)
 	g_memory_zeroMem(vm->mirrors[0], vm->ramSize);
 	g_memory_zeroMem(vm->mirrors[1], vm->ramSize);
 	g_memory_zeroMem(vm->mirrors[2], vm->ramSize);
+
+	return emu_vmError_None;
 }
 
 emu_vmError emu_vm_tick(emu_virtualMachine* vm)

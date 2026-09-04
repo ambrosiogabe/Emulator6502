@@ -1,6 +1,6 @@
 #ifndef EMULATOR_BASIC_6502_H
 #define EMULATOR_BASIC_6502_H
-#include <cppUtils/cppUtils.h>
+#include "utils/SafeVendor.h"
 
 typedef enum emu_basic6502_statusFlag
 {

@@ -6,7 +6,7 @@
 // Internal Functions
 
 // Public Functions
-emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t programSize)
+emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t _)
 {
 	emu_TokenList tokenList = emu_parser_parseFile(filename);
 	for (size_t i = 0; i < emu_parser_tokenListLength(&tokenList); i++)

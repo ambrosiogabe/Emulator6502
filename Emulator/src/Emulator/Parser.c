@@ -232,7 +232,7 @@ static void emu_emitConstant(emu_Parser* parser, uint8 constant);
 static char emu_getChar(emu_Parser* parser);
 static void emu_expectChar(emu_Parser* parser, char expected);
 static char emu_peek(emu_Parser* parser);
-static char emu_peekMulti(emu_Parser* parser, uint8 offset);
+static char emu_peekMulti(emu_Parser* parser, size_t offset);
 static void emu_skip(emu_Parser* parser, size_t skipAmount);
 static char emu_toUpper(char c);
 
@@ -272,7 +272,11 @@ emu_TokenList emu_parser_parseFile(const char* filename)
 	if (emu_file_read(filename, file) != emu_fileResult_Success)
 	{
 		g_logger_error("Failed to read file '%s'. Cannot assemble program.", filename);
-		return;
+		return (emu_TokenList)
+		{
+			.sourceFile = NULL,
+				.tokens = NULL
+		};
 	}
 
 	// TODO: Parser isn't in charge of emitting bytecode. Move this to the assembler
@@ -305,7 +309,7 @@ emu_TokenList emu_parser_parseFile(const char* filename)
 	}
 
 	// Patch all the needed patches
-	for (size_t i = 0; i < stbds_arrlen(parser.patches); i++)
+	for (int i = 0; i < stbds_arrlen(parser.patches); i++)
 	{
 		emu_PatchLocation* patch = parser.patches + i;
 
@@ -374,7 +378,7 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 	}
 	case '"':
 	{
-		emu_StringConstant strConstant = emu_parseStringConstant(parser);
+		emu_parseStringConstant(parser);
 		parser->expectingString = false;
 		return emu_makeToken(emu_TokenType_String, start, parser->current, line, column, (emu_TokenData) { 0 });
 	}
@@ -563,7 +567,7 @@ static uint8 emu_parseNumberConstant(emu_Parser* parser)
 
 	if (emu_peek(parser) != '%')
 	{
-		return emu_parseAddressConstant(parser, true);
+		return (uint8)emu_parseAddressConstant(parser, true);
 	}
 
 	return emu_parseBinaryConstant(parser);
@@ -612,7 +616,7 @@ static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
 		char digitChar = parser->file->data[parser->current - i - 1];
 		if (isHexadecimal)
 		{
-			uint16 base = (uint16)pow(16, i);
+			uint16 base = (uint16)pow(16, (double)i);
 			uint16 digit =
 				digitChar >= 'a' && digitChar <= 'f'
 				? digitChar - 'a' + 10
@@ -623,7 +627,7 @@ static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
 		}
 		else
 		{
-			uint16 base = (uint16)pow(10, i);
+			uint16 base = (uint16)pow(10, (double)i);
 			uint16 digit = digitChar - '0';
 			result += base * digit;
 		}
@@ -678,7 +682,7 @@ static uint8 emu_parseBinaryConstant(emu_Parser* parser)
 	{
 		char digitChar = parser->file->data[parser->current - i - 1];
 
-		uint16 base = (uint16)pow(2, i);
+		uint16 base = (uint16)pow(2, (double)i);
 		uint16 digit = digitChar == '1' ? 1 : 0;
 		result += base * digit;
 	}
@@ -693,7 +697,7 @@ static uint8 emu_parseBinaryConstant(emu_Parser* parser)
 		return 0;
 	}
 
-	return result;
+	return (uint8)result;
 }
 
 static emu_Keyword emu_isKeyword(emu_Parser* parser, emu_Symbol symbol)
@@ -878,7 +882,7 @@ static char emu_peek(emu_Parser* parser)
 	return emu_peekMulti(parser, 0);
 }
 
-static char emu_peekMulti(emu_Parser* parser, uint8 offset)
+static char emu_peekMulti(emu_Parser* parser, size_t offset)
 {
 	if (parser->current + offset >= parser->file->data_size)
 	{
@@ -941,7 +945,7 @@ static void emu_logErrorLineColumn(emu_Parser* parser, size_t line, size_t colum
 static void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size_t column, const char* fmtString, va_list args)
 {
 	static char messageBuffer[1'024];
-	int numChars = vsnprintf(messageBuffer, sizeof(messageBuffer), fmtString, args);
+	vsnprintf(messageBuffer, sizeof(messageBuffer), fmtString, args);
 
 	size_t lineStart = 0;
 	size_t lineEnd = parser->file->data_size;
@@ -982,13 +986,13 @@ static void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size
 
 static void emu_freeParser(emu_Parser* parser)
 {
-	for (size_t i = 0; i < stbds_arrlen(parser->patches); i++)
+	for (int i = 0; i < stbds_arrlen(parser->patches); i++)
 	{
 		emu_PatchLocation* patch = parser->patches + i;
 		g_memory_free(patch->label);
 	}
 
-	for (size_t i = 0; i < stbds_shlen(parser->labels); i++)
+	for (int i = 0; i < stbds_shlen(parser->labels); i++)
 	{
 		g_memory_free(parser->labels[i].key);
 	}

@@ -3,8 +3,8 @@
 #include "Emulator/VirtualMachine.h"
 #include "Emulator/Assembler.h"
 #include "Emulator/Types.h"
+#include "utils/SafeVendor.h"
 
-#include <cppUtils/cppUtils.h>
 #include <stb/stb_ds.h>
 
 emu_app emu_app_init()

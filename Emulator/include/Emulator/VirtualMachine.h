@@ -1,6 +1,6 @@
 #ifndef EMULATOR_VIRTUAL_MACHINE_H
 #define EMULATOR_VIRTUAL_MACHINE_H
-#include <cppUtils/cppUtils.h>
+#include "utils/SafeVendor.h"
 
 typedef enum emu_vmType
 {

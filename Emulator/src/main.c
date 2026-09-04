@@ -1,6 +1,6 @@
 #include <stdio.h>
-#include <cppUtils/cppUtils.h>
 
+#include "utils/SafeVendor.h"
 #include "Emulator/VendorImpls.h"
 #include "Emulator/App.h"
 

@@ -1,6 +1,6 @@
 #ifndef EMULATOR_BUS_H
 #define EMULATOR_BUS_H
-#include <cppUtils/cppUtils.h>
+#include "utils/SafeVendor.h"
 #include "Basic6502.h"
 #include "Types.h"
 

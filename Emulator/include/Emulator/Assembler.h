@@ -1,6 +1,6 @@
 #ifndef EMU_ASSEMBLER_H
 #define EMU_ASSEMBLER_H
-#include <cppUtils/cppUtils.h>
+#include "utils/SafeVendor.h"
 
 typedef struct emu_assember_program
 {

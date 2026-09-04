@@ -1,6 +1,6 @@
 #ifndef EMULATOR_BUS_H
 #define EMULATOR_BUS_H
-#include <cppUtils/cppUtils.h>
+#include "utils/SafeVendor.h"
 
 typedef struct emu_file
 {

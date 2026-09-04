@@ -145,16 +145,18 @@ uint8 setAddrMode(emu_basic6502* cpu, emu_addrMode addrMode)
 			return 0;
 		}
 	}
+
+	return 0;
 }
 
 uint8 executeOpCode(emu_basic6502* cpu, emu_opCode opCode)
 {
-
+	return 0;
 }
 
 uint8 emu_basic6502_getFlag(emu_basic6502_statusFlag flag)
 {
-
+	return 0;
 }
 
 void emu_basic6502_setFlag(emu_basic6502_statusFlag flag, bool value)

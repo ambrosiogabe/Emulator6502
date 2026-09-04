@@ -18,9 +18,12 @@ project "Emulator6502"
     cdialect "C11"
     staticruntime "on"
 
+    warnings "Extra" 
+    buildoptions { "-WX", "/wd4100" }
+
     targetdir("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
-
+    
     files {
         "Emulator/src/**.c",
         "Emulator/include/**.h"
@@ -60,9 +63,51 @@ project "Emulator6502"
        --     -- "Animations/vendor/GLFW/src/osmesa_context.c",
        -- }
 
-        -- defines  {
-        --     "_CRT_SECURE_NO_WARNINGS"
-        -- }
+        defines  {
+            "_CRT_SECURE_NO_WARNINGS"
+        }
+
+    filter { "configurations:Debug" }
+        buildoptions "/MTd"
+        runtime "Debug"
+        symbols "on"
+
+    filter { "configurations:Release" }
+        buildoptions "/MT"
+        runtime "Release"
+        optimize "on"
+
+        defines {
+            "_RELEASE"
+        }
+
+project "Emulator6502_Tests"
+    kind "ConsoleApp"
+    language "C"
+    cdialect "C11"
+    staticruntime "on"
+
+    warnings "Extra" 
+    buildoptions { "-WX", "/wd4100" }
+
+    targetdir("bin/" .. outputdir .. "/%{prj.name}")
+    objdir("bin-int/" .. outputdir .. "/%{prj.name}")
+    
+    files {
+        "Emulator/tests/**.h",
+        "Emulator/tests/**.c",
+    }
+
+    includedirs {
+        "Emulator/tests",
+    }
+
+    filter "system:windows"
+        systemversion "latest"
+
+        defines  {
+            "_CRT_SECURE_NO_WARNINGS"
+        }
 
     filter { "configurations:Debug" }
         buildoptions "/MTd"
