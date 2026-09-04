@@ -597,10 +597,9 @@ static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 valu
 
 static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
 {
-	// TODO: Double check that ones' complement works correctly here
-	value = ~value;
-	value += emu_vm_getStatus(vm, emu_vmStatus_Carry);
-	if ((UINT8_MAX - vm->accumulatorReg) < value)
+	int8 signedValue = -1 * (int8)value;
+	signedValue += emu_vm_getStatus(vm, emu_vmStatus_Carry);
+	if (vm->accumulatorReg < value)
 	{
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
 	}
@@ -609,8 +608,8 @@ static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
 	}
 
-	int16 trueValue = (int16)((int8)vm->accumulatorReg + (int8)value);
-	vm->accumulatorReg += value;
+	int16 trueValue = (int16)((int8)vm->accumulatorReg + (int8)signedValue);
+	vm->accumulatorReg = (uint8)trueValue;
 	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->accumulatorReg);
 	checkOverflowFlag(vm, trueValue);
 }

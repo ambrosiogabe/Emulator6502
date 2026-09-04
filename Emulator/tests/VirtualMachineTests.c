@@ -16,6 +16,7 @@ static emu_virtualMachine emu_runProgram(uint8* program, size_t programSize)
 	return result;
 }
 
+// -------------- Add with carry tests --------------
 UTEST(VirtualMachine, AddWithCarry_HappyPath)
 {
 	uint8 program[] = {
@@ -121,6 +122,112 @@ UTEST(VirtualMachine, AddWithCarry_ZeroResult)
 	}
 }
 
+// -------------- Sub with carry tests --------------
+UTEST(VirtualMachine, SubWithCarry_HappyPath)
+{
+	uint8 program[] = {
+		emu_vmInstruction_LDA_IMM,
+		10,
+		emu_vmInstruction_SBC_IMM,
+		5
+	};
+
+	emu_virtualMachine machine = emu_runProgram(program, sizeof(program));
+
+	ASSERT_EQ(machine.accumulatorReg, 5);
+	for (int i = 0; i < 8; i++)
+	{
+		emu_vmStatus status = (emu_vmStatus)(1 << i);
+		ASSERT_FALSE(emu_vm_getStatus(&machine, status));
+	}
+}
+
+UTEST(VirtualMachine, SubWithCarry_UnsignedUnderflow)
+{
+	uint8 program[] = {
+		emu_vmInstruction_LDA_IMM,
+		0,
+		emu_vmInstruction_SBC_IMM,
+		2
+	};
+
+	emu_virtualMachine machine = emu_runProgram(program, sizeof(program));
+
+	ASSERT_EQ(machine.accumulatorReg, 0xFE);
+	ASSERT_TRUE(emu_vm_getStatus(&machine, emu_vmStatus_Carry));
+	for (int i = 0; i < 8; i++)
+	{
+		emu_vmStatus status = (emu_vmStatus)(1 << i);
+		if (status == emu_vmStatus_Carry || status == emu_vmStatus_Negative) continue;
+		ASSERT_FALSE(emu_vm_getStatus(&machine, status));
+	}
+}
+
+UTEST(VirtualMachine, SubWithCarry_NegativeResult)
+{
+	uint8 program[] = {
+		emu_vmInstruction_LDA_IMM,
+		(uint8)(-5),
+		emu_vmInstruction_SBC_IMM,
+		5
+	};
+
+	emu_virtualMachine machine = emu_runProgram(program, sizeof(program));
+
+	ASSERT_EQ(machine.accumulatorReg, (uint8)(-10));
+	ASSERT_TRUE(emu_vm_getStatus(&machine, emu_vmStatus_Negative));
+	for (int i = 0; i < 8; i++)
+	{
+		emu_vmStatus status = (emu_vmStatus)(1 << i);
+		if (status == emu_vmStatus_Negative) continue;
+		ASSERT_FALSE(emu_vm_getStatus(&machine, status));
+	}
+}
+
+UTEST(VirtualMachine, SubWithCarry_SignedUnderflow)
+{
+	uint8 program[] = {
+		emu_vmInstruction_LDA_IMM,
+		(uint8)(-128),
+		emu_vmInstruction_SBC_IMM,
+		1
+	};
+
+	emu_virtualMachine machine = emu_runProgram(program, sizeof(program));
+
+	ASSERT_EQ(machine.accumulatorReg, (uint8)(-129));
+	ASSERT_TRUE(emu_vm_getStatus(&machine, emu_vmStatus_Overflow));
+	for (int i = 0; i < 8; i++)
+	{
+		emu_vmStatus status = (emu_vmStatus)(1 << i);
+		if (status == emu_vmStatus_Overflow) continue;
+		ASSERT_FALSE(emu_vm_getStatus(&machine, status));
+	}
+}
+
+UTEST(VirtualMachine, SubWithCarry_ZeroResult)
+{
+	uint8 program[] = {
+		emu_vmInstruction_LDA_IMM,
+		(uint8)(-1),
+		emu_vmInstruction_SBC_IMM,
+		(uint8)(-1)
+	};
+
+	emu_virtualMachine machine = emu_runProgram(program, sizeof(program));
+
+	ASSERT_EQ(machine.accumulatorReg, 0x0);
+	ASSERT_TRUE(emu_vm_getStatus(&machine, emu_vmStatus_Zero));
+	for (int i = 0; i < 8; i++)
+	{
+		emu_vmStatus status = (emu_vmStatus)(1 << i);
+		if (status == emu_vmStatus_Zero) continue;
+		if (status == emu_vmStatus_Carry) continue;
+		ASSERT_FALSE(emu_vm_getStatus(&machine, status));
+	}
+}
+
+// -------------- Get/Set stauts tests --------------
 UTEST(VirtualMachine, GetStatus)
 {
 	uint8 program[] = {
