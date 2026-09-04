@@ -32,6 +32,7 @@ static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 a
 static void rotateRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 
 static void checkFlagStatuses(emu_virtualMachine* vm, uint8 flagsToCheck, uint8 value);
+static void checkOverflowFlag(emu_virtualMachine* vm, int16 value);
 
 #define INSTRUCTION_EXPANSION(caseName, function) \
 case caseName:\
@@ -588,9 +589,10 @@ static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 valu
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
 	}
 
+	int16 trueValue = (int16)((int8)value + (int8)vm->accumulatorReg);
 	vm->accumulatorReg += value;
-	// TODO: Add overflow flag support
 	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->accumulatorReg);
+	checkOverflowFlag(vm, trueValue);
 }
 
 static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)
@@ -607,9 +609,10 @@ static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
 	}
 
+	int16 trueValue = (int16)((int8)vm->accumulatorReg + (int8)value);
 	vm->accumulatorReg += value;
-	// TODO: Add overflow flag support
 	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->accumulatorReg);
+	checkOverflowFlag(vm, trueValue);
 }
 
 static void compare(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value)
@@ -813,5 +816,17 @@ static void checkFlagStatuses(emu_virtualMachine* vm, uint8 flagsToCheck, uint8 
 		{
 			emu_vm_clearStatus(vm, emu_vmStatus_Negative);
 		}
+	}
+}
+
+static void checkOverflowFlag(emu_virtualMachine* vm, int16 trueValue)
+{
+	if (trueValue > 127 || trueValue < -128)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Overflow);
+	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Overflow);
 	}
 }
