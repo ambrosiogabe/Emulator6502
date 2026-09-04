@@ -88,7 +88,7 @@ project "Emulator6502_Tests"
     staticruntime "on"
 
     warnings "Extra" 
-    buildoptions { "-WX", "/wd4100" }
+    buildoptions { "-WX", "/wd4100", "/wd4028" }
 
     targetdir("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
@@ -96,10 +96,18 @@ project "Emulator6502_Tests"
     files {
         "Emulator/tests/**.h",
         "Emulator/tests/**.c",
+        "Emulator/src/**.c",
+        "Emulator/include/**.h"
+    }
+
+    removefiles {
+        "Emulator/src/main.c"
     }
 
     includedirs {
         "Emulator/tests",
+        "Emulator/include",
+        "Emulator/vendor/CppUtils/single_include"
     }
 
     filter "system:windows"

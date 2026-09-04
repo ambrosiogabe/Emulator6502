@@ -388,17 +388,17 @@ const char* emu_vm_instructionToString(emu_vmInstruction instruction)
 
 uint8 emu_vm_getStatus(emu_virtualMachine* vm, emu_vmStatus status)
 {
-	return (vm->statusReg >> status) & 1;
+	return (vm->statusReg & status) & 0xFF;
 }
 
 void emu_vm_setStatus(emu_virtualMachine* vm, emu_vmStatus status)
 {
-	vm->statusReg = (vm->statusReg & ~(1 << status)) | (1 << status);
+	vm->statusReg = vm->statusReg | (uint8)status;
 }
 
 void emu_vm_clearStatus(emu_virtualMachine* vm, emu_vmStatus status)
 {
-	vm->statusReg = (vm->statusReg & ~(1 << status)) | (0 << status);
+	vm->statusReg = vm->statusReg & ~status;
 }
 
 // --------------- Internal Functions ---------------
@@ -805,7 +805,7 @@ static void checkFlagStatuses(emu_virtualMachine* vm, uint8 flagsToCheck, uint8 
 
 	if (flagsToCheck & emu_vmStatus_Negative)
 	{
-		if ((int16)value < 0)
+		if ((int8)value < 0)
 		{
 			emu_vm_setStatus(vm, emu_vmStatus_Negative);
 		}
