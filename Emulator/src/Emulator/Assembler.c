@@ -2,6 +2,7 @@
 #include "Emulator/Parser.h"
 #include "Emulator/VirtualMachine.h"
 #include "utils/FileHelper.h"
+#include "utils/SafeVendor.h"
 
 #include <stb/stb_ds.h>
 #include <stdio.h>
@@ -90,6 +91,7 @@ typedef struct emu_Assembler
 // Internal Functions
 static emu_StatementError assembleNextStatement(emu_Assembler* assembler);
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token);
+static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* token);
 static emu_ArgList* parseArgList(emu_Assembler* assembler);
 static void freeArgList(emu_ArgList* argList);
 static void addPatch(emu_Assembler* assembler, emu_Token const* token);
@@ -134,6 +136,25 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 	while (!error)
 	{
 		error = assembleNextStatement(&assembler);
+	}
+
+	// Patch all the needed patches
+	for (int i = 0; i < stbds_arrlen(assembler.patches); i++)
+	{
+		emu_PatchLocation* patch = assembler.patches + i;
+
+		if (stbds_shgeti(assembler.labels, patch->label) >= 0)
+		{
+			size_t value = stbds_shget(assembler.labels, patch->label);
+			int16 relativeOffset = (int16)((int64)value - (int64)patch->programIndex);
+			assembler.program.data[patch->programIndex] = relativeOffset >> 8;
+			assembler.program.data[patch->programIndex + 1] = (uint8)(relativeOffset & 0xFF);
+		}
+		else
+		{
+			emu_Token const* token = patch->token;
+			emu_logError(&assembler, token, "Label not found'%s'.", patch->label);
+		}
 	}
 
 	emu_parser_freeTokenList(&tokenList);
@@ -185,15 +206,41 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 	{
 	case emu_TokenType_Keyword:
 		return assembleInstruction(assembler, token);
-		// TODO: Add support for control commands
-	case emu_TokenType_ControlCommand:
 	case emu_TokenType_Symbol:
+		return parseLabel(assembler, token);
 	case emu_TokenType_String:
 	case emu_TokenType_Comment:
+		return emu_StatementError_None;
+	// TODO: Add real support for control commands
+	case emu_TokenType_ControlCommand:
+		if (token->data.controlCommand == emu_ControlCommand_Export || token->data.controlCommand == emu_ControlCommand_Proc)
+		{
+			emu_expect(assembler, emu_TokenType_Symbol);
+		}
+		else if (token->data.controlCommand == emu_ControlCommand_Segment)
+		{
+			emu_expect(assembler, emu_TokenType_String);
+		}
 		return emu_StatementError_None;
 	}
 
 	return emu_StatementError_Invalid;
+}
+
+static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* token)
+{
+	if (!emu_expect(assembler, emu_TokenType_Colon))
+	{
+		return emu_StatementError_Invalid;
+	}
+
+	// Record the location of this label
+	char* symbolString = g_memory_allocate(token->length + 1);
+	g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + token->start, token->length);
+	symbolString[token->length] = '\0';
+	stbds_shput(assembler->labels, symbolString, assembler->programIndex);
+
+	return emu_StatementError_None;
 }
 
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token)
@@ -237,6 +284,24 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			freeArgList(argList);
 			return emu_StatementError_Invalid;
 		}
+	}
+	else if (argList->mode == emu_AddressingMode_Jump)
+	{
+		emu_emitOpcode(assembler, emu_vmInstruction_BCC_REL);
+
+		// Record the location of this patch
+		emu_Token const* patchToken = argList->arg0.token;
+		char* symbolString = g_memory_allocate(patchToken->length + 1);
+		g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
+		symbolString[patchToken->length] = '\0';
+		emu_PatchLocation patch = {
+			.label = symbolString,
+			.programIndex = assembler->programIndex,
+			.token = patchToken
+		};
+		// Increment 2 bytes to save room for the patched location
+		assembler->programIndex += 2;
+		stbds_arrput(assembler->patches, patch);
 	}
 
 	freeArgList(argList);

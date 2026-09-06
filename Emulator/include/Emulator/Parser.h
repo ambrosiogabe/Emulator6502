@@ -72,6 +72,7 @@ typedef enum emu_TokenType
 	emu_TokenType_Symbol,
 	emu_TokenType_String,
 	emu_TokenType_Comma,
+	emu_TokenType_Colon,
 	emu_TokenType_ImmediateConstant,
 	emu_TokenType_ByteConstant,
 	emu_TokenType_TwoByteConstant,

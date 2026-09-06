@@ -66,30 +66,12 @@ const char* emu_TokenTypes[] = {
 	"Symbol",
 	"String",
 	"Comma",
+	"Colon",
 	"ImmediateConstant",
 	"ByteConstant",
 	"TwoByteConstant",
 	"Length"
 };
-
-typedef struct emu_PatchLocation
-{
-	// The index in the program that needs to be patched
-	size_t programIndex;
-	// The label we need to jump to
-	char* label;
-	// Debug info
-	size_t originalCodeIndex;
-	size_t originalCodeLine;
-	size_t originalCodeColumn;
-} emu_PatchLocation;
-
-typedef struct emu_Label
-{
-	char* key;
-	// The program index where this label is located
-	size_t value;
-} emu_Label;
 
 typedef struct emu_Symbol
 {
@@ -116,10 +98,6 @@ typedef struct emu_Parser
 	size_t lastSymbolStart;
 
 	emu_Keyword currentInstruction;
-	bool expectingSymbol;
-	bool expectingString;
-	emu_PatchLocation* patches;
-	emu_Label* labels;
 	emu_Token* tokens;
 } emu_Parser;
 
@@ -138,12 +116,6 @@ static uint8 emu_parseNumberConstant(emu_Parser* parser);
 static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly);
 static uint8 emu_parseBinaryConstant(emu_Parser* parser);
 static void emu_skipToEndOfLine(emu_Parser* parser);
-
-static void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_Keyword keyword);
-static void emu_emitOpcode_immediate(emu_Parser* parser, emu_Keyword keyword);
-static void emu_emitOpcode(emu_Parser* parser, emu_vmInstruction opcode);
-// You can only load a 1 byte constant into the parser
-static void emu_emitConstant(emu_Parser* parser, uint8 constant);
 
 static char emu_getChar(emu_Parser* parser);
 static void emu_expectChar(emu_Parser* parser, char expected);
@@ -206,8 +178,6 @@ emu_TokenList emu_parser_parseFile(const char* filename)
 		.currentColumn = 1,
 		.currentLine = 1,
 		.currentInstruction = emu_Keyword_NULL,
-		.patches = NULL,
-		.labels = NULL,
 		.tokens = NULL,
 	};
 
@@ -222,25 +192,6 @@ emu_TokenList emu_parser_parseFile(const char* filename)
 
 		emu_Token token = emu_parseToken(&parser);
 		stbds_arrput(parser.tokens, token);
-	}
-
-	// Patch all the needed patches
-	for (int i = 0; i < stbds_arrlen(parser.patches); i++)
-	{
-		emu_PatchLocation* patch = parser.patches + i;
-
-		if (stbds_shgeti(parser.labels, patch->label) >= 0)
-		{
-			size_t value = stbds_shget(parser.labels, patch->label);
-			int16 relativeOffset = (int16)((int64)value - (int64)patch->programIndex);
-			parser.program[patch->programIndex] = relativeOffset >> 8;
-			parser.program[patch->programIndex + 1] = (uint8)(relativeOffset & 0xFF);
-		}
-		else
-		{
-			parser.current = patch->originalCodeIndex;
-			emu_logErrorLineColumn(&parser, patch->originalCodeLine, patch->originalCodeColumn, "Label not found '%s'.", patch->label);
-		}
 	}
 
 	emu_freeParser(&parser);
@@ -268,18 +219,6 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 	size_t column = parser->currentColumn;
 	char c = emu_peek(parser);
 
-	// Check expectations
-	if (parser->expectingSymbol && !emu_isSymbolStart(c))
-	{
-		emu_logError(parser, "Expected symbol instead got '%c'", c);
-		parser->expectingSymbol = false;
-	}
-	else if (parser->expectingString && c != '"')
-	{
-		emu_logError(parser, "Expected string instead got '%c'", c);
-		parser->expectingString = false;
-	}
-
 	switch (c)
 	{
 	case ';':
@@ -295,26 +234,24 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 	case '"':
 	{
 		emu_parseStringConstant(parser);
-		parser->expectingString = false;
 		return emu_makeToken(emu_TokenType_String, start, parser->current, line, column, (emu_TokenData) { 0 });
 	}
 	case '#':
 	{
 		uint8 numberConstant = emu_parseNumberConstant(parser);
-		emu_emitOpcode_immediate(parser, parser->currentInstruction);
-		emu_emitConstant(parser, numberConstant);
 		return emu_makeToken(emu_TokenType_ImmediateConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
 	}
 	case '$':
 	{
 		uint8 numberConstant = (uint8)emu_parseAddressConstant(parser, false);
-		emu_emitOpcode_zeroPage(parser, parser->currentInstruction);
-		emu_emitConstant(parser, numberConstant);
 		return emu_makeToken(emu_TokenType_ByteConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
 	}
 	case ',':
 		emu_getChar(parser);
 		return emu_makeToken(emu_TokenType_Comma, start, parser->current, line, column, (emu_TokenData) { 0 });
+	case ':':
+		emu_getChar(parser);
+		return emu_makeToken(emu_TokenType_Colon, start, parser->current, line, column, (emu_TokenData) { 0 });
 	default:
 		if (emu_isSymbolStart(c))
 		{
@@ -323,51 +260,9 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 			if (instruction != emu_Keyword_NULL)
 			{
 				parser->currentInstruction = instruction;
-				if (instruction == emu_Keyword_BCC)
-				{
-					parser->expectingSymbol = true;
-				}
 				return emu_makeToken(emu_TokenType_Keyword, start, parser->current, line, column, (emu_TokenData) { .keyword = instruction });
 			}
-			else
-			{
-				// If we're expecting a symbol, we may need to record the location to patch later
-				if (parser->expectingSymbol)
-				{
-					if (parser->currentInstruction == emu_Keyword_BCC)
-					{
-						emu_emitOpcode(parser, emu_vmInstruction_BCC_REL);
 
-						// Record the location of this patch
-						char* symbolString = g_memory_allocate(symbol.length + 1);
-						g_memory_copyMem(symbolString, parser->file->data + symbol.start, symbol.length);
-						symbolString[symbol.length] = '\0';
-						emu_PatchLocation patch = {
-							.label = symbolString,
-							.programIndex = parser->programIndex,
-							.originalCodeIndex = symbol.start,
-							.originalCodeColumn = parser->currentColumn,
-							.originalCodeLine = parser->currentLine,
-						};
-						// Increment 2 bytes to save room for the patched location
-						parser->programIndex += 2;
-						stbds_arrput(parser->patches, patch);
-					}
-				}
-				// Otherwise we're declaring a new symbol and need to follow it with a ':'
-				else
-				{
-					emu_expectChar(parser, ':');
-					// Record the location of this label
-					char* symbolString = g_memory_allocate(symbol.length + 1);
-					g_memory_copyMem(symbolString, parser->file->data + symbol.start, symbol.length);
-					symbolString[symbol.length] = '\0';
-					stbds_shput(parser->labels, symbolString, parser->programIndex);
-				}
-			}
-
-			// Make sure to reset expectations if needed
-			parser->expectingSymbol = false;
 			return emu_makeToken(emu_TokenType_Symbol, start, parser->current, line, column, (emu_TokenData) { 0 });
 		}
 		else
@@ -429,17 +324,6 @@ static emu_ControlCommand emu_parseControlCommand(emu_Parser* parser)
 		if (isKeyword)
 		{
 			emu_skip(parser, keywordLength);
-			switch (i)
-			{
-			case emu_ControlCommand_Export:
-			case emu_ControlCommand_Proc:
-				parser->expectingSymbol = true;
-				break;
-			case emu_ControlCommand_Segment:
-				parser->expectingString = true;
-				break;
-			}
-
 			return (emu_ControlCommand)i;
 		}
 	}
@@ -667,102 +551,6 @@ static void emu_skipToEndOfLine(emu_Parser* parser)
 	emu_getChar(parser);
 }
 
-static void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_Keyword keyword)
-{
-	switch (keyword)
-	{
-	case emu_Keyword_LDX:
-		emu_emitOpcode(parser, emu_vmInstruction_LDX_ZP);
-		break;
-	case emu_Keyword_STX:
-		emu_emitOpcode(parser, emu_vmInstruction_STX_ZP);
-		break;
-	case emu_Keyword_LDY:
-		emu_emitOpcode(parser, emu_vmInstruction_LDY_ZP);
-		break;
-	case emu_Keyword_STY:
-		emu_emitOpcode(parser, emu_vmInstruction_STY_ZP);
-		break;
-	case emu_Keyword_LDA:
-		emu_emitOpcode(parser, emu_vmInstruction_LDA_ZP);
-		break;
-	case emu_Keyword_STA:
-		emu_emitOpcode(parser, emu_vmInstruction_STA_ZP);
-		break;
-	case emu_Keyword_CLC:
-		emu_emitOpcode(parser, emu_vmInstruction_CLC);
-		break;
-	case emu_Keyword_ADC:
-		emu_emitOpcode(parser, emu_vmInstruction_ADC_ZP);
-		break;
-	case emu_Keyword_RTS:
-		emu_emitOpcode(parser, emu_vmInstruction_RTS_IMP);
-		break;
-	case emu_Keyword_CMP:
-		emu_emitOpcode(parser, emu_vmInstruction_CMP_ZP);
-		break;
-	default:
-		g_logger_warning("Cannot emit invalid instruction.");
-	}
-}
-
-static void emu_emitOpcode_immediate(emu_Parser* parser, emu_Keyword keyword)
-{
-	switch (keyword)
-	{
-	case emu_Keyword_LDX:
-		emu_emitOpcode(parser, emu_vmInstruction_LDX_IMM);
-		break;
-	case emu_Keyword_LDY:
-		emu_emitOpcode(parser, emu_vmInstruction_LDY_IMM);
-		break;
-	case emu_Keyword_LDA:
-		emu_emitOpcode(parser, emu_vmInstruction_LDA_IMM);
-		break;
-	case emu_Keyword_CLC:
-		emu_emitOpcode(parser, emu_vmInstruction_CLC);
-		break;
-	case emu_Keyword_ADC:
-		emu_emitOpcode(parser, emu_vmInstruction_ADC_IMM);
-		break;
-	case emu_Keyword_RTS:
-		emu_emitOpcode(parser, emu_vmInstruction_RTS_IMP);
-		break;
-	case emu_Keyword_CMP:
-		emu_emitOpcode(parser, emu_vmInstruction_CMP_IMM);
-		break;
-	case emu_Keyword_STX:
-	case emu_Keyword_STY:
-	case emu_Keyword_STA:
-	default:
-		g_logger_warning("Cannot emit invalid instruction.");
-	}
-}
-
-static void emu_emitOpcode(emu_Parser* parser, emu_vmInstruction opcode)
-{
-	if (parser->programIndex >= parser->programSize)
-	{
-		g_logger_warning("Ran out of program memory. Cannot emit anymore instructions.");
-		return;
-	}
-
-	parser->program[parser->programIndex] = (uint8)opcode;
-	parser->programIndex++;
-}
-
-static void emu_emitConstant(emu_Parser* parser, uint8 constant)
-{
-	if (parser->programIndex >= parser->programSize)
-	{
-		g_logger_warning("Ran out of program memory. Cannot emit anymore instructions.");
-		return;
-	}
-
-	parser->program[parser->programIndex] = constant;
-	parser->programIndex++;
-}
-
 static char emu_getChar(emu_Parser* parser)
 {
 	char result = emu_peek(parser);
@@ -913,19 +701,6 @@ static void emu_logErrorLineColumnWithArgs(emu_Parser* parser, size_t line, size
 
 static void emu_freeParser(emu_Parser* parser)
 {
-	for (int i = 0; i < stbds_arrlen(parser->patches); i++)
-	{
-		emu_PatchLocation* patch = parser->patches + i;
-		g_memory_free(patch->label);
-	}
-
-	for (int i = 0; i < stbds_shlen(parser->labels); i++)
-	{
-		g_memory_free(parser->labels[i].key);
-	}
-
-	stbds_arrfree(parser->patches);
-	stbds_shfree(parser->labels);
 	g_memory_free(parser->program);
 
 	// NOTE: We explicitly don't free the file or tokens since we return those in the parsed result.
