@@ -91,11 +91,13 @@ typedef struct emu_Assembler
 // Internal Functions
 static emu_StatementError assembleNextStatement(emu_Assembler* assembler);
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token);
+static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* token);
 static emu_ArgList* parseArgList(emu_Assembler* assembler);
 static void freeArgList(emu_ArgList* argList);
 static void addPatch(emu_Assembler* assembler, emu_Token const* token);
 
+static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler);
 static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitImmediateOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* token);
@@ -108,6 +110,7 @@ static bool emu_expectImplicitCommand(emu_Assembler* assembler, emu_Token const*
 static bool emu_expectImmediateCommand(emu_Assembler* assembler, emu_Token const* token);
 static bool emu_expectZeroPageCommand(emu_Assembler* assembler, emu_Token const* token);
 static bool emu_expect(emu_Assembler* assembler, emu_TokenType expected);
+static emu_Token const* emu_expectOneOf(emu_Assembler* assembler, emu_TokenType* expected, size_t numExpected);
 static void emu_logError(emu_Assembler* assembler, emu_Token const* token, const char* fmtString, ...);
 static emu_Token const* getNext(emu_Assembler* assembler);
 static emu_TokenType peek(emu_Assembler* assembler);
@@ -211,17 +214,9 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 	case emu_TokenType_String:
 	case emu_TokenType_Comment:
 		return emu_StatementError_None;
-	// TODO: Add real support for control commands
+		// TODO: Add real support for control commands
 	case emu_TokenType_ControlCommand:
-		if (token->data.controlCommand == emu_ControlCommand_Export || token->data.controlCommand == emu_ControlCommand_Proc)
-		{
-			emu_expect(assembler, emu_TokenType_Symbol);
-		}
-		else if (token->data.controlCommand == emu_ControlCommand_Segment)
-		{
-			emu_expect(assembler, emu_TokenType_String);
-		}
-		return emu_StatementError_None;
+		return assembleControlCommand(assembler, token);
 	}
 
 	return emu_StatementError_Invalid;
@@ -250,7 +245,7 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 	if (argList->mode == emu_AddressingMode_Implicit)
 	{
 		if (emu_expectImplicitCommand(assembler, token))
-		{ 
+		{
 			emu_emitImplicitOpcode(assembler, token);
 		}
 		else
@@ -306,6 +301,26 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 
 	freeArgList(argList);
 	return emu_StatementError_None;
+}
+
+static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_Token const* token)
+{
+	switch (token->data.controlCommand)
+	{
+	case emu_ControlCommand_Export:
+	case emu_ControlCommand_Proc:
+		// TODO: Add proper support here
+		emu_expect(assembler, emu_TokenType_Symbol);
+		return emu_StatementError_None;
+	case emu_ControlCommand_Segment:
+		// TODO: Add proper support here
+		emu_expect(assembler, emu_TokenType_String);
+		return emu_StatementError_None;
+	case emu_ControlCommand_Byte:
+		return emu_parseAndEmitByteList(assembler);
+	}
+
+	return emu_StatementError_Invalid;
 }
 
 static emu_ArgList* parseArgList(emu_Assembler* assembler)
@@ -393,6 +408,30 @@ static void freeArgList(emu_ArgList* argList)
 	{
 		g_memory_free(argList);
 	}
+}
+
+static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler)
+{
+	emu_Token const* token = NULL;
+	emu_TokenType expectedTypes[] = { emu_TokenType_ImmediateConstant, emu_TokenType_ByteConstant };
+	do
+	{
+		token = emu_expectOneOf(assembler, expectedTypes, (sizeof(expectedTypes) / sizeof(emu_TokenType)));
+		if (!token)
+		{
+			return emu_StatementError_Invalid;
+		}
+		emu_emitByte(assembler, token->data.byteConstant);
+
+		if (peek(assembler) != emu_TokenType_Comma)
+		{
+			return emu_StatementError_None;
+		}
+		token = getNext(assembler);
+
+	} while (token);
+
+	return emu_StatementError_None;
 }
 
 static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* token)
@@ -489,6 +528,47 @@ static bool emu_expect(emu_Assembler* assembler, emu_TokenType expected)
 
 	emu_logError(assembler, token, "Expected token of type '%s', instead got type '%s'.", emu_TokenTypes[expected], emu_TokenTypes[token->type]);
 	return false;
+}
+
+static emu_Token const* emu_expectOneOf(emu_Assembler* assembler, emu_TokenType* expected, size_t numExpected)
+{
+	bool res = false;
+	emu_Token const* token = getNext(assembler);
+
+	for (size_t i = 0; i < numExpected; i++)
+	{
+		if (token->type == expected[i])
+		{
+			res = true;
+			break;
+		}
+	}
+
+	if (!res)
+	{
+		char expectedTypesMessage[1'024];
+		char* expectedTypesMessageCursor = expectedTypesMessage;
+		for (size_t i = 0; i < numExpected; i++)
+		{
+			expectedTypesMessageCursor += snprintf(expectedTypesMessageCursor, (expectedTypesMessage + sizeof(expectedTypesMessage)) - expectedTypesMessageCursor, "'%s'", emu_TokenTypes[expected[i]]);
+			if (expectedTypesMessageCursor > expectedTypesMessage + sizeof(expectedTypesMessage))
+			{
+				break;
+			}
+
+			if (i < numExpected - 1)
+			{
+				expectedTypesMessageCursor += snprintf(expectedTypesMessageCursor, (expectedTypesMessage + sizeof(expectedTypesMessage)) - expectedTypesMessageCursor, " or ");
+				if (expectedTypesMessageCursor > expectedTypesMessage + sizeof(expectedTypesMessage))
+				{
+					break;
+				}
+			}
+		}
+		emu_logError(assembler, token, "Expected token of type %s, instead got type '%s'.", expectedTypesMessage, emu_TokenTypes[token->type]);
+	}
+
+	return res ? token : NULL;
 }
 
 static bool emu_expectImplicitCommand(emu_Assembler* assembler, emu_Token const* token)

@@ -237,6 +237,16 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 		return emu_makeToken(emu_TokenType_String, start, parser->current, line, column, (emu_TokenData) { 0 });
 	}
 	case '#':
+	case '0':
+	case '1':
+	case '2':
+	case '3':
+	case '4':
+	case '5':
+	case '6':
+	case '7':
+	case '8':
+	case '9':
 	{
 		uint8 numberConstant = emu_parseNumberConstant(parser);
 		return emu_makeToken(emu_TokenType_ImmediateConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
@@ -366,7 +376,10 @@ static emu_StringConstant emu_parseStringConstant(emu_Parser* parser)
 static uint8 emu_parseNumberConstant(emu_Parser* parser)
 {
 	// Skip the '#' character
-	emu_getChar(parser);
+	if (emu_peek(parser) == '#')
+	{
+		emu_getChar(parser);
+	}
 
 	if (emu_peek(parser) != '%')
 	{

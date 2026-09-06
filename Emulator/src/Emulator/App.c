@@ -39,10 +39,10 @@ static void flushScanf()
 
 void emu_app_run(emu_app* app)
 {
-	bool runInteractive = true;
+	bool runInteractive = false;
 
 	// For now, let's just read a file and parse it?
-	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.s";
+	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\04_looping.s";
 
 	emu_assembler_program program = emu_assembler_assembleProgram(programFile, KB(512));
 	//emu_vm_printOpcodes(program.program, program.size);
