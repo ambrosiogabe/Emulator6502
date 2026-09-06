@@ -1,6 +1,8 @@
 #include "Emulator/VirtualMachine.h"
-
 #include "Emulator/Assembler.h"
+
+#include <stdio.h>
+#include <string.h>
 
 const char* emu_vmInstructions[EMU_MAX_INSTRUCTION_OPCODE] = { 0 };
 
@@ -59,7 +61,7 @@ void emu_vm_initDebug()
 
 	emu_vmInstructions[emu_vmInstruction_BRK] = "BRK";
 	emu_vmInstructions[emu_vmInstruction_CLC] = "CLC";
-	emu_vmInstructions[emu_vmInstruction_RTS] = "RTS";
+	emu_vmInstructions[emu_vmInstruction_RTS_IMP] = "RTS_IMP";
 	// -- OR instructions --
 	emu_vmInstructions[emu_vmInstruction_ORA_IMM] = "ORA_IMM";
 	emu_vmInstructions[emu_vmInstruction_ORA_ZP] = "ORA_ZP";
@@ -210,6 +212,48 @@ void emu_vm_printOpcodes(uint8* program, size_t programSize)
 	{
 		i++;
 		g_logger_info("Opcode: %s on %X", emu_vm_instructionToString(program[i - 1]), program[i]);
+	}
+}
+
+void emu_vm_printStatusFlags(emu_virtualMachine* vm)
+{
+	const char* tableHeader = "| N | V | B | D | 1 | Z | C |  A |  X |  Y |";
+	int tableHeaderLength = (int)strlen(tableHeader);
+	const char* lines      = "=====================================================";
+	const char* smallLines = "-----------------------------------------------------";
+	printf("%.*s\n", tableHeaderLength, lines);
+	printf("|               Status Flags               |\n");
+	printf("%.*s\n%s\n%.*s\n", tableHeaderLength, smallLines, tableHeader, tableHeaderLength, smallLines);
+	printf("| %d | %d | %d | %d | %d | %d | %d | %02x | %02x | %02x |\n%.*s\n", 
+		emu_vm_getStatus(vm, emu_vmStatus_Negative),
+		emu_vm_getStatus(vm, emu_vmStatus_Overflow),
+		emu_vm_getStatus(vm, emu_vmStatus_B),
+		emu_vm_getStatus(vm, emu_vmStatus_Decimal),
+		emu_vm_getStatus(vm, emu_vmStatus_1),
+		emu_vm_getStatus(vm, emu_vmStatus_Zero),
+		emu_vm_getStatus(vm, emu_vmStatus_Carry),
+		vm->accumulatorReg,
+		vm->xReg,
+		vm->yReg,
+		tableHeaderLength,
+		lines
+	);
+}
+
+void emu_vm_printRam(emu_virtualMachine* vm, uint16 address, uint16 numBytes)
+{
+	for (size_t i = 0; i < numBytes; i++)
+	{
+		printf("0x%04X: ", (uint16)(address + i));
+		if (vm->ramSize > (size_t)(address + i))
+		{
+			printf("0x%02X ", vm->ram[address + i]);
+		}
+		else
+		{
+			printf("0xXX");
+		}
+		printf("\n");
 	}
 }
 
@@ -503,6 +547,9 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 	// Special
 	case emu_vmInstruction_CLC:
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
+		break;
+	case emu_vmInstruction_RTS_IMP:
+		g_logger_warning("Add proper support for RTS");
 		break;
 	default:
 		g_logger_error("Cannot execute instruction: '%s'", emu_vmInstructions[instruction]);

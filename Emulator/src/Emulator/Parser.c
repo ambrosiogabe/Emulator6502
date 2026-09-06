@@ -9,17 +9,6 @@
 #include <stb/stb_ds.h>
 
 // Internal structures
-typedef enum emu_ControlCommand
-{
-	emu_ControlCommand_Export,
-	emu_ControlCommand_Segment,
-	emu_ControlCommand_Proc,
-	emu_ControlCommand_EndProc,
-	emu_ControlCommand_Byte,
-	emu_ControlCommand_Length,
-	emu_ControlCommand_NULL
-} emu_ControlCommand;
-
 const char* emu_ControlCommands[] = {
 	"export",
 	"segment",
@@ -29,46 +18,6 @@ const char* emu_ControlCommands[] = {
 	"LENGTH",
 	"NULL"
 };
-
-typedef enum emu_Keyword
-{
-	emu_Keyword_ldx,
-	emu_Keyword_stx,
-
-	emu_Keyword_ldy,
-	emu_Keyword_sty,
-
-	emu_Keyword_lda,
-	emu_Keyword_sta,
-
-	emu_Keyword_clc,
-
-	emu_Keyword_rts,
-	emu_Keyword_bcc,
-
-	// Logical/Arithmetic commands
-	emu_Keyword_ora,
-	emu_Keyword_and,
-	emu_Keyword_eor,
-	emu_Keyword_adc,
-	emu_Keyword_sbc,
-	emu_Keyword_cmp,
-	emu_Keyword_cpx,
-	emu_Keyword_cpy,
-	emu_Keyword_dec,
-	emu_Keyword_dex,
-	emu_Keyword_dey,
-	emu_Keyword_inc,
-	emu_Keyword_inx,
-	emu_Keyword_iny,
-	emu_Keyword_asl,
-	emu_Keyword_rol,
-	emu_Keyword_lsr,
-	emu_Keyword_ror,
-
-	emu_Keyword_Length,
-	emu_Keyword_NULL,
-} emu_Keyword;
 
 const char* emu_Keywords[] = {
 	"ldx",
@@ -109,21 +58,6 @@ const char* emu_Keywords[] = {
 	"NULL"
 };
 
-typedef enum emu_TokenType
-{
-	emu_TokenType_NULL = 0,
-	emu_TokenType_ControlCommand,
-	emu_TokenType_Keyword,
-	emu_TokenType_Comment,
-	emu_TokenType_Symbol,
-	emu_TokenType_String,
-	emu_TokenType_Label,
-	emu_TokenType_Comma,
-	emu_TokenType_ByteConstant,
-	emu_TokenType_TwoByteConstant,
-	emu_TokenType_Length
-} emu_TokenType;
-
 const char* emu_TokenTypes[] = {
 	"NULL",
 	"ControlCommand",
@@ -131,30 +65,12 @@ const char* emu_TokenTypes[] = {
 	"Comment",
 	"Symbol",
 	"String",
-	"Label",
 	"Comma",
+	"ImmediateConstant",
 	"ByteConstant",
 	"TwoByteConstant",
 	"Length"
 };
-
-typedef union emu_TokenData
-{
-	uint8 byteConstant;
-	uint16 twoByteConstant;
-	emu_ControlCommand controlCommand;
-	emu_Keyword keyword;
-} emu_TokenData;
-
-typedef struct emu_Token
-{
-	emu_TokenType type;
-	size_t start;
-	size_t length;
-	size_t line;
-	size_t column;
-	emu_TokenData data;
-} emu_Token;
 
 typedef struct emu_PatchLocation
 {
@@ -387,7 +303,7 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 		uint8 numberConstant = emu_parseNumberConstant(parser);
 		emu_emitOpcode_immediate(parser, parser->currentInstruction);
 		emu_emitConstant(parser, numberConstant);
-		return emu_makeToken(emu_TokenType_ByteConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
+		return emu_makeToken(emu_TokenType_ImmediateConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
 	}
 	case '$':
 	{
@@ -396,6 +312,9 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 		emu_emitConstant(parser, numberConstant);
 		return emu_makeToken(emu_TokenType_ByteConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
 	}
+	case ',':
+		emu_getChar(parser);
+		return emu_makeToken(emu_TokenType_Comma, start, parser->current, line, column, (emu_TokenData) { 0 });
 	default:
 		if (emu_isSymbolStart(c))
 		{
@@ -404,7 +323,7 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 			if (instruction != emu_Keyword_NULL)
 			{
 				parser->currentInstruction = instruction;
-				if (instruction == emu_Keyword_bcc)
+				if (instruction == emu_Keyword_BCC)
 				{
 					parser->expectingSymbol = true;
 				}
@@ -415,7 +334,7 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 				// If we're expecting a symbol, we may need to record the location to patch later
 				if (parser->expectingSymbol)
 				{
-					if (parser->currentInstruction == emu_Keyword_bcc)
+					if (parser->currentInstruction == emu_Keyword_BCC)
 					{
 						emu_emitOpcode(parser, emu_vmInstruction_BCC_REL);
 
@@ -584,7 +503,11 @@ static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
 	while (!emu_isWhitespace(emu_peek(parser)))
 	{
 		char digit = emu_peek(parser);
-		if (isHexadecimal)
+		if (digit == ',')
+		{
+			break;
+		}
+		else if (isHexadecimal)
 		{
 			if (!((digit >= 'a' && digit <= 'f') || (digit >= 'A' && digit <= 'F') || (digit >= '0' && digit <= '9')))
 			{
@@ -662,7 +585,11 @@ static uint8 emu_parseBinaryConstant(emu_Parser* parser)
 	while (!emu_isWhitespace(emu_peek(parser)))
 	{
 		char digit = emu_peek(parser);
-		if (digit != '0' && digit != '1')
+		if (digit == ',')
+		{
+			break;
+		}
+		else if (digit != '0' && digit != '1')
 		{
 			emu_logError(parser, "Invalid digit encountered '%c'. Binary constant must contain only 0's and 1's.", digit);
 			isInvalid = true;
@@ -744,34 +671,34 @@ static void emu_emitOpcode_zeroPage(emu_Parser* parser, emu_Keyword keyword)
 {
 	switch (keyword)
 	{
-	case emu_Keyword_ldx:
+	case emu_Keyword_LDX:
 		emu_emitOpcode(parser, emu_vmInstruction_LDX_ZP);
 		break;
-	case emu_Keyword_stx:
+	case emu_Keyword_STX:
 		emu_emitOpcode(parser, emu_vmInstruction_STX_ZP);
 		break;
-	case emu_Keyword_ldy:
+	case emu_Keyword_LDY:
 		emu_emitOpcode(parser, emu_vmInstruction_LDY_ZP);
 		break;
-	case emu_Keyword_sty:
+	case emu_Keyword_STY:
 		emu_emitOpcode(parser, emu_vmInstruction_STY_ZP);
 		break;
-	case emu_Keyword_lda:
+	case emu_Keyword_LDA:
 		emu_emitOpcode(parser, emu_vmInstruction_LDA_ZP);
 		break;
-	case emu_Keyword_sta:
+	case emu_Keyword_STA:
 		emu_emitOpcode(parser, emu_vmInstruction_STA_ZP);
 		break;
-	case emu_Keyword_clc:
+	case emu_Keyword_CLC:
 		emu_emitOpcode(parser, emu_vmInstruction_CLC);
 		break;
-	case emu_Keyword_adc:
+	case emu_Keyword_ADC:
 		emu_emitOpcode(parser, emu_vmInstruction_ADC_ZP);
 		break;
-	case emu_Keyword_rts:
-		emu_emitOpcode(parser, emu_vmInstruction_RTS);
+	case emu_Keyword_RTS:
+		emu_emitOpcode(parser, emu_vmInstruction_RTS_IMP);
 		break;
-	case emu_Keyword_cmp:
+	case emu_Keyword_CMP:
 		emu_emitOpcode(parser, emu_vmInstruction_CMP_ZP);
 		break;
 	default:
@@ -783,30 +710,30 @@ static void emu_emitOpcode_immediate(emu_Parser* parser, emu_Keyword keyword)
 {
 	switch (keyword)
 	{
-	case emu_Keyword_ldx:
+	case emu_Keyword_LDX:
 		emu_emitOpcode(parser, emu_vmInstruction_LDX_IMM);
 		break;
-	case emu_Keyword_ldy:
+	case emu_Keyword_LDY:
 		emu_emitOpcode(parser, emu_vmInstruction_LDY_IMM);
 		break;
-	case emu_Keyword_lda:
+	case emu_Keyword_LDA:
 		emu_emitOpcode(parser, emu_vmInstruction_LDA_IMM);
 		break;
-	case emu_Keyword_clc:
+	case emu_Keyword_CLC:
 		emu_emitOpcode(parser, emu_vmInstruction_CLC);
 		break;
-	case emu_Keyword_adc:
+	case emu_Keyword_ADC:
 		emu_emitOpcode(parser, emu_vmInstruction_ADC_IMM);
 		break;
-	case emu_Keyword_rts:
-		emu_emitOpcode(parser, emu_vmInstruction_RTS);
+	case emu_Keyword_RTS:
+		emu_emitOpcode(parser, emu_vmInstruction_RTS_IMP);
 		break;
-	case emu_Keyword_cmp:
+	case emu_Keyword_CMP:
 		emu_emitOpcode(parser, emu_vmInstruction_CMP_IMM);
 		break;
-	case emu_Keyword_stx:
-	case emu_Keyword_sty:
-	case emu_Keyword_sta:
+	case emu_Keyword_STX:
+	case emu_Keyword_STY:
+	case emu_Keyword_STA:
 	default:
 		g_logger_warning("Cannot emit invalid instruction.");
 	}

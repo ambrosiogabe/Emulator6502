@@ -6,6 +6,8 @@
 #include "utils/SafeVendor.h"
 
 #include <stb/stb_ds.h>
+#include <stdio.h>
+#include <conio.h>
 
 emu_app emu_app_init()
 {
@@ -29,21 +31,75 @@ typedef struct HashMapTest
 	uint8 value;
 } HashMapTest;
 
+static void flushScanf()
+{
+	char c;
+	while ((c = (char)getchar()) != '\n' && c != EOF);
+}
+
 void emu_app_run(emu_app* app)
 {
+	bool runInteractive = true;
+
 	// For now, let's just read a file and parse it?
 	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.s";
 
 	emu_assembler_program program = emu_assembler_assembleProgram(programFile, KB(512));
 	//emu_vm_printOpcodes(program.program, program.size);
-	
+
 	emu_vm_resetMachine(app->vm);
-	emu_vm_loadProgram(app->vm, program.program, program.size);
+	emu_vm_loadProgram(app->vm, program.data, program.size);
 
 	emu_vmError error = emu_vmError_None;
 	while (error == emu_vmError_None)
 	{
+		uint8 nextInstruction = app->vm->rom[app->vm->programCounter];
 		error = emu_vm_tick(app->vm);
+
+		if (runInteractive && !error)
+		{
+			printf(">| <%d>: '%s'\n", app->vm->programCounter, emu_vmInstructions[nextInstruction]);
+			printf(">| Press S to VM Status, R to see ram, any other key to continue: ");
+			char input = (char)_getch();
+			printf("\n");
+
+			if (input == 'S' || input == 's')
+			{
+				printf("\n");
+				emu_vm_printStatusFlags(app->vm);
+				printf("\n");
+			}
+			else if (input == 'R' || input == 'r')
+			{
+				printf(">| RAM Address: $0x");
+				uint32 address;
+				if (!scanf("%x", &address))
+				{
+					printf("Invalid address.");
+					continue;
+				}
+
+				flushScanf();
+
+				printf(">| Number of bytes: ");
+				int32 numBytes;
+				if (!scanf("%d", &numBytes))
+				{
+					printf("Invalid number of bytes");
+					continue;
+				}
+				if (numBytes <= 0)
+				{
+					printf("Invalid number of bytes");
+					continue;
+				}
+
+				flushScanf();
+				printf("\n");
+				emu_vm_printRam(app->vm, (uint16)address, (uint16)numBytes);
+				printf("\n");
+			}
+		}
 	}
 
 	emu_assembler_free(&program);

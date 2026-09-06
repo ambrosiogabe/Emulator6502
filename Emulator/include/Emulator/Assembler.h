@@ -2,9 +2,9 @@
 #define EMU_ASSEMBLER_H
 #include "utils/SafeVendor.h"
 
-typedef struct emu_assember_program
+typedef struct emu_assembler_program
 {
-	uint8* program;
+	uint8* data;
 	size_t size;
 } emu_assembler_program;
 

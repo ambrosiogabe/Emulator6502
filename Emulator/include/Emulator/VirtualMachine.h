@@ -40,7 +40,7 @@ typedef enum emu_vmInstruction
 {
 	emu_vmInstruction_BRK = 0x00,
 	emu_vmInstruction_CLC = 0x18,
-	emu_vmInstruction_RTS = 0x60,
+	emu_vmInstruction_RTS_IMP = 0x60,
 	// -- OR instructions --
 	emu_vmInstruction_ORA_IMM = 0x09,
 	emu_vmInstruction_ORA_ZP = 0x05,
@@ -227,6 +227,8 @@ typedef struct emu_virtualMachine
 
 void emu_vm_initDebug();
 void emu_vm_printOpcodes(uint8* program, size_t programSize);
+void emu_vm_printStatusFlags(emu_virtualMachine* vm);
+void emu_vm_printRam(emu_virtualMachine* vm, uint16 address, uint16 numBytes);
 
 // NES Type
 // @romSize: $BFE0 = 49'120 bytes
