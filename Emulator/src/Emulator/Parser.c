@@ -29,10 +29,20 @@ const char* emu_Keywords[] = {
 	"lda",
 	"sta",
 
-	"clc",
 
 	"rts",
+
+	// Jump/Flag commands
+	"bpl",
+	"bmi",
+	"bvc",
+	"bvs",
 	"bcc",
+	"bcs",
+	"bne",
+	"beq",
+	"sec",
+	"clc",
 
 	// Logical/Arithmetic commands
 	"ora",
@@ -66,6 +76,7 @@ const char* emu_TokenTypes[] = {
 	"Symbol",
 	"String",
 	"Comma",
+	"Plus",
 	"Colon",
 	"ImmediateConstant",
 	"ByteConstant",
@@ -260,6 +271,9 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 		emu_getChar(parser);
 		return emu_makeToken(emu_TokenType_Comma, start, parser->current, line, column, (emu_TokenData) { 0 });
 	case ':':
+		emu_getChar(parser);
+		return emu_makeToken(emu_TokenType_Colon, start, parser->current, line, column, (emu_TokenData) { 0 });
+	case '+':
 		emu_getChar(parser);
 		return emu_makeToken(emu_TokenType_Colon, start, parser->current, line, column, (emu_TokenData) { 0 });
 	default:

@@ -6,6 +6,9 @@ typedef struct emu_assembler_program
 {
 	uint8* data;
 	size_t size;
+	uint16 nmiVector;
+	uint16 resetVector;
+	uint16 irqBrkVector;
 } emu_assembler_program;
 
 emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t programSize);

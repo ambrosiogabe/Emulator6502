@@ -1,6 +1,9 @@
 #ifndef EMULATOR_VIRTUAL_MACHINE_H
 #define EMULATOR_VIRTUAL_MACHINE_H
 #include "utils/SafeVendor.h"
+#include "Emulator/MemoryMap.h"
+
+typedef struct emu_assembler_program emu_assembler_program;
 
 typedef enum emu_vmType
 {
@@ -39,7 +42,8 @@ extern const char* emu_vmInstructions[];
 typedef enum emu_vmInstruction
 {
 	emu_vmInstruction_BRK = 0x00,
-	emu_vmInstruction_CLC = 0x18,
+	emu_vmInstruction_CLC_IMP = 0x18,
+	emu_vmInstruction_SEC_IMP = 0x38,
 	emu_vmInstruction_RTS_IMP = 0x60,
 	// -- OR instructions --
 	emu_vmInstruction_ORA_IMM = 0x09,
@@ -179,7 +183,14 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_ROR_ABS = 0x6E,
 	emu_vmInstruction_ROR_ABX = 0x7E,
 	// -- Branch instructions --
+	emu_vmInstruction_BPL_REL = 0x10,
+	emu_vmInstruction_BMI_REL = 0x30,
+	emu_vmInstruction_BVC_REL = 0x50,
+	emu_vmInstruction_BVS_REL = 0x70,
 	emu_vmInstruction_BCC_REL = 0x90,
+	emu_vmInstruction_BCS_REL = 0xB0,
+	emu_vmInstruction_BNE_REL = 0xD0,
+	emu_vmInstruction_BEQ_REL = 0xF0,
 
 	// NOP that we'll use as a flag
 	emu_vmInstruction_ILLEGAL = 0xFA,
@@ -196,14 +207,14 @@ typedef enum emu_vmError
 
 typedef enum emu_vmStatus
 {
-	emu_vmStatus_Carry            = 0x1 << 0,
-	emu_vmStatus_Zero             = 0x1 << 1,
+	emu_vmStatus_Carry = 0x1 << 0,
+	emu_vmStatus_Zero = 0x1 << 1,
 	emu_vmStatus_InterruptDisable = 0x1 << 2,
-	emu_vmStatus_Decimal          = 0x1 << 3,
-	emu_vmStatus_B                = 0x1 << 4,
-	emu_vmStatus_1                = 0x1 << 5,
-	emu_vmStatus_Overflow         = 0x1 << 6,
-	emu_vmStatus_Negative         = 0x1 << 7
+	emu_vmStatus_Decimal = 0x1 << 3,
+	emu_vmStatus_B = 0x1 << 4,
+	emu_vmStatus_1 = 0x1 << 5,
+	emu_vmStatus_Overflow = 0x1 << 6,
+	emu_vmStatus_Negative = 0x1 << 7
 } emu_vmStatus;
 
 typedef struct emu_virtualMachine
@@ -216,13 +227,7 @@ typedef struct emu_virtualMachine
 	uint8 statusReg;
 	uint8 stackPointer;
 
-	uint32 ramSize;
-	uint8* ram;
-	// 3 Mirrors, same size as RAM
-	uint8* mirrors[3];
-
-	uint32 romSize;
-	uint8* rom;
+	emu_MemoryMap mmap;
 } emu_virtualMachine;
 
 void emu_vm_initDebug();
@@ -230,15 +235,17 @@ void emu_vm_printOpcodes(uint8* program, size_t programSize);
 void emu_vm_printStatusFlags(emu_virtualMachine* vm);
 void emu_vm_printRam(emu_virtualMachine* vm, uint16 address, uint16 numBytes);
 
+uint8* emu_vm_getAddress(emu_virtualMachine* vm, uint16 address);
+
 // NES Type
 // @romSize: $BFE0 = 49'120 bytes
 // @ramSize: $0800 = 2 KiloBytes
 // Commodore64 Type
 // Unsupported
 emu_virtualMachine emu_vm_init(emu_vmType vmType);
-emu_virtualMachine emu_vm_sizedInit(uint32 romSize, uint32 ramSize, emu_vmType vmType);
+emu_virtualMachine emu_vm_sizedInit(size_t physicalMemorySize, emu_vmType vmType);
 
-emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, uint8* program, size_t programSize);
+emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* program);
 
 emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm);
 

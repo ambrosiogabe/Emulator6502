@@ -23,6 +23,21 @@ case emu_Keyword_##type:\
 emu_emitOpcode(assembler, emu_vmInstruction_##type##_ZP);\
 break
 
+#define EMIT_RELATIVE_OPCODE(type) \
+case emu_Keyword_##type:\
+emu_emitOpcode(assembler, emu_vmInstruction_##type##_REL);\
+break
+
+#define EMIT_ABSOLUTE_OPCODE(type) \
+case emu_Keyword_##type:\
+emu_emitOpcode(assembler, emu_vmInstruction_##type##_ABS);\
+break
+
+#define EMIT_ABSOLUTE_X_OPCODE(type) \
+case emu_Keyword_##type:\
+emu_emitOpcode(assembler, emu_vmInstruction_##type##_ABX);\
+break
+
 // Internal structures
 typedef enum emu_AddressingMode
 {
@@ -30,14 +45,23 @@ typedef enum emu_AddressingMode
 	emu_AddressingMode_Immediate,
 	emu_AddressingMode_Implicit,
 	emu_AddressingMode_Absolute,
-	emu_AddressingMode_Jump,
+	emu_AddressingMode_Relative,
 	emu_AddressingMode_Unknown,
 } emu_AddressingMode;
+
+typedef enum emu_ArgumentType
+{
+	emu_ArgumentType_Byte,
+	emu_ArgumentType_Word,
+	emu_ArgumentType_Label,
+	emu_ArgumentType_X,
+	emu_ArgumentType_Y
+} emu_ArgumentType;
 
 typedef struct emu_Argument
 {
 	emu_Token const* token;
-	bool isLabel;
+	emu_ArgumentType type;
 	union
 	{
 		uint8 byte;
@@ -84,6 +108,7 @@ typedef struct emu_Assembler
 	emu_TokenList* tokenList;
 
 	size_t programIndex;
+	size_t programRomIndex;
 	emu_Label* labels;
 	emu_PatchLocation* patches;
 } emu_Assembler;
@@ -93,7 +118,7 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler);
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* token);
-static emu_ArgList* parseArgList(emu_Assembler* assembler);
+static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* token);
 static void freeArgList(emu_ArgList* argList);
 static void addPatch(emu_Assembler* assembler, emu_Token const* token);
 
@@ -101,7 +126,11 @@ static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler);
 static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitImmediateOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* token);
+static void emu_emitRelativeOpcode(emu_Assembler* assembler, emu_Token const* token);
+static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* token);
+static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
+static void emu_emitRomByte(emu_Assembler* assembler, uint8 opcode);
 static void emu_emitByte(emu_Assembler* assembler, uint8 opcode);
 
 static bool isArgStart(emu_Assembler* assembler);
@@ -109,6 +138,10 @@ static bool isArgStart(emu_Assembler* assembler);
 static bool emu_expectImplicitCommand(emu_Assembler* assembler, emu_Token const* token);
 static bool emu_expectImmediateCommand(emu_Assembler* assembler, emu_Token const* token);
 static bool emu_expectZeroPageCommand(emu_Assembler* assembler, emu_Token const* token);
+static bool emu_expectRelativeCommandWithError(emu_Assembler* assembler, emu_Token const* token, bool withError);
+static bool emu_expectRelativeCommand(emu_Assembler* assembler, emu_Token const* token);
+static bool emu_expectAbsoluteCommandWithError(emu_Assembler* assembler, emu_Token const* token, bool withError);
+static bool emu_expectAbsoluteCommand(emu_Assembler* assembler, emu_Token const* token);
 static bool emu_expect(emu_Assembler* assembler, emu_TokenType expected);
 static emu_Token const* emu_expectOneOf(emu_Assembler* assembler, emu_TokenType* expected, size_t numExpected);
 static void emu_logError(emu_Assembler* assembler, emu_Token const* token, const char* fmtString, ...);
@@ -130,6 +163,7 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 		.program = {.data = g_memory_allocate(programSize), .size = programSize },
 	.current = 0,
 	.programIndex = 0,
+	.programRomIndex = programSize / 2,
 	.tokenList = &tokenList,
 	.labels = NULL,
 	.patches = NULL,
@@ -180,6 +214,9 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 	{
 		.data = assembler.program.data,
 			.size = assembler.programIndex,
+			.irqBrkVector = 0,
+			.nmiVector = 0,
+			.resetVector = 0,
 	};
 }
 
@@ -240,7 +277,7 @@ static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* 
 
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token)
 {
-	emu_ArgList* argList = parseArgList(assembler);
+	emu_ArgList* argList = parseArgList(assembler, token);
 
 	if (argList->mode == emu_AddressingMode_Implicit)
 	{
@@ -280,23 +317,82 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			return emu_StatementError_Invalid;
 		}
 	}
-	else if (argList->mode == emu_AddressingMode_Jump)
+	else if (argList->mode == emu_AddressingMode_Relative)
 	{
-		emu_emitOpcode(assembler, emu_vmInstruction_BCC_REL);
-
-		// Record the location of this patch
-		emu_Token const* patchToken = argList->arg0.token;
-		char* symbolString = g_memory_allocate(patchToken->length + 1);
-		g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
-		symbolString[patchToken->length] = '\0';
-		emu_PatchLocation patch = {
-			.label = symbolString,
-			.programIndex = assembler->programIndex,
-			.token = patchToken
-		};
-		// Increment 2 bytes to save room for the patched location
-		assembler->programIndex += 2;
-		stbds_arrput(assembler->patches, patch);
+		if (emu_expectRelativeCommand(assembler, token))
+		{
+			if (argList->arg0.type != emu_ArgumentType_Label)
+			{
+				emu_logError(assembler, argList->arg0.token, "Command needs a label to jump to.");
+			}
+			else
+			{
+				emu_emitRelativeOpcode(assembler, token);
+				// Record the location of this patch
+				emu_Token const* patchToken = argList->arg0.token;
+				char* symbolString = g_memory_allocate(patchToken->length + 1);
+				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
+				symbolString[patchToken->length] = '\0';
+				emu_PatchLocation patch = {
+					.label = symbolString,
+					.programIndex = assembler->programIndex,
+					.token = patchToken
+				};
+				// Increment 2 bytes to save room for the patched location
+				assembler->programIndex += 2;
+				stbds_arrput(assembler->patches, patch);
+			}
+		}
+		else
+		{
+			freeArgList(argList);
+			return emu_StatementError_Invalid;
+		}
+	}
+	else if (argList->mode == emu_AddressingMode_Absolute)
+	{
+		if (emu_expectAbsoluteCommand(assembler, token))
+		{
+			if (argList->arg0.type == emu_ArgumentType_Label && argList->numArgs == 1)
+			{
+				emu_emitAbsoluteOpcode(assembler, token);
+				// Record the location of this patch
+				emu_Token const* patchToken = argList->arg0.token;
+				char* symbolString = g_memory_allocate(patchToken->length + 1);
+				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
+				symbolString[patchToken->length] = '\0';
+				emu_PatchLocation patch = {
+					.label = symbolString,
+					.programIndex = assembler->programIndex,
+					.token = patchToken
+				};
+				// Increment 2 bytes to save room for the patched location
+				assembler->programIndex += 2;
+				stbds_arrput(assembler->patches, patch);
+			}
+			else if (argList->arg0.type == emu_ArgumentType_Label && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
+			{
+				emu_emitAbsoluteXOpcode(assembler, token);
+				// Record the location of this patch
+				emu_Token const* patchToken = argList->arg0.token;
+				char* symbolString = g_memory_allocate(patchToken->length + 1);
+				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
+				symbolString[patchToken->length] = '\0';
+				emu_PatchLocation patch = {
+					.label = symbolString,
+					.programIndex = assembler->programIndex,
+					.token = patchToken
+				};
+				// Increment 2 bytes to save room for the patched location
+				assembler->programIndex += 2;
+				stbds_arrput(assembler->patches, patch);
+			}
+		}
+		else
+		{
+			freeArgList(argList);
+			return emu_StatementError_Invalid;
+		}
 	}
 
 	freeArgList(argList);
@@ -323,15 +419,15 @@ static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_T
 	return emu_StatementError_Invalid;
 }
 
-static emu_ArgList* parseArgList(emu_Assembler* assembler)
+static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* token)
 {
 	emu_ArgList* argList = g_memory_allocate(sizeof(emu_ArgList));
 	*argList = (emu_ArgList){ 0 };
 
 	// Assume no arguments will be provided
 	argList->mode = emu_AddressingMode_Implicit;
-	argList->arg0.isLabel = false;
-	argList->arg1.isLabel = false;
+	argList->arg0.type = emu_ArgumentType_Byte;
+	argList->arg1.type = emu_ArgumentType_Byte;
 
 	if (!isArgStart(assembler))
 	{
@@ -353,12 +449,27 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler)
 	else if (argList->arg0.token->type == emu_TokenType_TwoByteConstant)
 	{
 		argList->arg0.as.word = argList->arg0.token->data.twoByteConstant;
+		argList->arg0.type = emu_ArgumentType_Word;
 		argList->mode = emu_AddressingMode_Absolute;
 	}
 	else if (argList->arg0.token->type == emu_TokenType_Symbol)
 	{
-		argList->mode = emu_AddressingMode_Jump;
-		argList->arg0.isLabel = true;
+		// Handle jumping to a symbol
+		if (emu_expectRelativeCommandWithError(assembler, token, false))
+		{
+			argList->mode = emu_AddressingMode_Relative;
+			argList->arg0.type = emu_ArgumentType_Label;
+		}
+		// Handle using a symbol as an address
+		else if (emu_expectAbsoluteCommandWithError(assembler, token, false))
+		{
+			argList->mode = emu_AddressingMode_Absolute;
+			argList->arg0.type = emu_ArgumentType_Label;
+		}
+		else
+		{
+			g_logger_error("Unexpected symbol after instruction '%s'. Not sure what to do here.", emu_Keywords[token->data.keyword]);
+		}
 	}
 	else
 	{
@@ -377,9 +488,6 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler)
 
 	// For now, just expect either label/byte/word
 
-	// TODO: Add support for more complex addressing modes
-	argList->mode = emu_AddressingMode_Unknown;
-
 	argList->arg1.token = getNext(assembler);
 	if (argList->arg1.token->type == emu_TokenType_ByteConstant)
 	{
@@ -388,10 +496,25 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler)
 	else if (argList->arg1.token->type == emu_TokenType_TwoByteConstant)
 	{
 		argList->arg1.as.word = argList->arg1.token->data.twoByteConstant;
+		argList->arg1.type = emu_ArgumentType_Word;
+		argList->mode = emu_AddressingMode_Absolute;
 	}
 	else if (argList->arg1.token->type == emu_TokenType_Symbol)
 	{
-		argList->arg1.isLabel = true;
+		emu_file* file = assembler->tokenList->sourceFile;
+		char symbolFirstChar = file->data[argList->arg1.token->start];
+		if (symbolFirstChar == 'x' && argList->arg1.token->length == 1)
+		{
+			argList->arg1.type = emu_ArgumentType_X;
+		}
+		else if (symbolFirstChar == 'y' && argList->arg1.token->length == 1)
+		{
+			argList->arg1.type = emu_ArgumentType_Y;
+		}
+		else
+		{
+			argList->arg1.type = emu_ArgumentType_Label;
+		}
 	}
 	else
 	{
@@ -421,7 +544,7 @@ static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler)
 		{
 			return emu_StatementError_Invalid;
 		}
-		emu_emitByte(assembler, token->data.byteConstant);
+		emu_emitRomByte(assembler, token->data.byteConstant);
 
 		if (peek(assembler) != emu_TokenType_Comma)
 		{
@@ -447,6 +570,8 @@ static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_IMPLICIT_OPCODE(LSR);
 		EMIT_IMPLICIT_OPCODE(ROR);
 		EMIT_IMPLICIT_OPCODE(RTS);
+		EMIT_IMPLICIT_OPCODE(SEC);
+		EMIT_IMPLICIT_OPCODE(CLC);
 	}
 }
 
@@ -495,9 +620,84 @@ static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* to
 	}
 }
 
+static void emu_emitRelativeOpcode(emu_Assembler* assembler, emu_Token const* token)
+{
+	switch (token->data.keyword)
+	{
+		EMIT_RELATIVE_OPCODE(BPL);
+		EMIT_RELATIVE_OPCODE(BMI);
+		EMIT_RELATIVE_OPCODE(BVC);
+		EMIT_RELATIVE_OPCODE(BVS);
+		EMIT_RELATIVE_OPCODE(BCC);
+		EMIT_RELATIVE_OPCODE(BCS);
+		EMIT_RELATIVE_OPCODE(BNE);
+		EMIT_RELATIVE_OPCODE(BEQ);
+	}
+}
+
+static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* token)
+{
+	switch (token->data.keyword)
+	{
+		EMIT_ABSOLUTE_OPCODE(ORA);
+		EMIT_ABSOLUTE_OPCODE(AND);
+		EMIT_ABSOLUTE_OPCODE(EOR);
+		EMIT_ABSOLUTE_OPCODE(ADC);
+		EMIT_ABSOLUTE_OPCODE(SBC);
+		EMIT_ABSOLUTE_OPCODE(CMP);
+		EMIT_ABSOLUTE_OPCODE(CPX);
+		EMIT_ABSOLUTE_OPCODE(CPY);
+		EMIT_ABSOLUTE_OPCODE(DEC);
+		EMIT_ABSOLUTE_OPCODE(INC);
+		EMIT_ABSOLUTE_OPCODE(ASL);
+		EMIT_ABSOLUTE_OPCODE(ROL);
+		EMIT_ABSOLUTE_OPCODE(LSR);
+		EMIT_ABSOLUTE_OPCODE(ROR);
+		EMIT_ABSOLUTE_OPCODE(LDA);
+		EMIT_ABSOLUTE_OPCODE(STA);
+		EMIT_ABSOLUTE_OPCODE(LDX);
+		EMIT_ABSOLUTE_OPCODE(LDY);
+		EMIT_ABSOLUTE_OPCODE(STY);
+		EMIT_ABSOLUTE_OPCODE(STX);
+	}
+}
+
+static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* token)
+{
+	switch (token->data.keyword)
+	{
+		EMIT_ABSOLUTE_X_OPCODE(ORA);
+		EMIT_ABSOLUTE_X_OPCODE(AND);
+		EMIT_ABSOLUTE_X_OPCODE(EOR);
+		EMIT_ABSOLUTE_X_OPCODE(ADC);
+		EMIT_ABSOLUTE_X_OPCODE(SBC);
+		EMIT_ABSOLUTE_X_OPCODE(CMP);
+		EMIT_ABSOLUTE_X_OPCODE(DEC);
+		EMIT_ABSOLUTE_X_OPCODE(INC);
+		EMIT_ABSOLUTE_X_OPCODE(ASL);
+		EMIT_ABSOLUTE_X_OPCODE(ROL);
+		EMIT_ABSOLUTE_X_OPCODE(LSR);
+		EMIT_ABSOLUTE_X_OPCODE(ROR);
+		EMIT_ABSOLUTE_X_OPCODE(LDA);
+		EMIT_ABSOLUTE_X_OPCODE(STA);
+		EMIT_ABSOLUTE_X_OPCODE(LDY);
+	}
+}
+
 static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode)
 {
 	emu_emitByte(assembler, opcode);
+}
+
+static void emu_emitRomByte(emu_Assembler* assembler, uint8 opcode)
+{
+	if (assembler->programRomIndex >= assembler->program.size)
+	{
+		return;
+	}
+
+	assembler->program.data[assembler->programRomIndex] = opcode;
+	assembler->programRomIndex++;
 }
 
 static void emu_emitByte(emu_Assembler* assembler, uint8 opcode)
@@ -584,6 +784,8 @@ static bool emu_expectImplicitCommand(emu_Assembler* assembler, emu_Token const*
 	case emu_Keyword_LSR:
 	case emu_Keyword_ROR:
 	case emu_Keyword_RTS:
+	case emu_Keyword_SEC:
+	case emu_Keyword_CLC:
 		return true;
 	}
 
@@ -642,6 +844,71 @@ static bool emu_expectZeroPageCommand(emu_Assembler* assembler, emu_Token const*
 
 	emu_logError(assembler, token, "Instruction '%s' does not support Zero Page addressing mode.", emu_Keywords[token->data.keyword]);
 	return false;
+}
+
+static bool emu_expectRelativeCommandWithError(emu_Assembler* assembler, emu_Token const* token, bool withError)
+{
+	switch (token->data.keyword)
+	{
+	case emu_Keyword_BPL:
+	case emu_Keyword_BMI:
+	case emu_Keyword_BVC:
+	case emu_Keyword_BVS:
+	case emu_Keyword_BCC:
+	case emu_Keyword_BCS:
+	case emu_Keyword_BNE:
+	case emu_Keyword_BEQ:
+		return true;
+	}
+
+	if (withError)
+	{
+		emu_logError(assembler, token, "Instruction '%s' does not support Relative jumping.", emu_Keywords[token->data.keyword]);
+	}
+	return false;
+}
+
+static bool emu_expectRelativeCommand(emu_Assembler* assembler, emu_Token const* token)
+{
+	return emu_expectRelativeCommandWithError(assembler, token, true);
+}
+
+static bool emu_expectAbsoluteCommandWithError(emu_Assembler* assembler, emu_Token const* token, bool withError)
+{
+	switch (token->data.keyword)
+	{
+	case emu_Keyword_ORA:
+	case emu_Keyword_AND:
+	case emu_Keyword_EOR:
+	case emu_Keyword_ADC:
+	case emu_Keyword_SBC:
+	case emu_Keyword_CMP:
+	case emu_Keyword_CPX:
+	case emu_Keyword_DEC:
+	case emu_Keyword_INC:
+	case emu_Keyword_ASL:
+	case emu_Keyword_ROL:
+	case emu_Keyword_LSR:
+	case emu_Keyword_ROR:
+	case emu_Keyword_LDA:
+	case emu_Keyword_STA:
+	case emu_Keyword_LDX:
+	case emu_Keyword_STX:
+	case emu_Keyword_LDY:
+	case emu_Keyword_STY:
+		return true;
+	}
+
+	if (withError)
+	{
+		emu_logError(assembler, token, "Instruction '%s' does not support Relative jumping.", emu_Keywords[token->data.keyword]);
+	}
+	return false;
+}
+
+static bool emu_expectAbsoluteCommand(emu_Assembler* assembler, emu_Token const* token)
+{
+	return emu_expectAbsoluteCommandWithError(assembler, token, true);
 }
 
 static void emu_logError(emu_Assembler* assembler, emu_Token const* token, const char* fmtString, ...)

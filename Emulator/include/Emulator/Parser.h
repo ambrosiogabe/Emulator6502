@@ -32,10 +32,19 @@ typedef enum emu_Keyword
 	emu_Keyword_LDA,
 	emu_Keyword_STA,
 
-	emu_Keyword_CLC,
-
 	emu_Keyword_RTS,
+
+	// Jump/Flag commands
+	emu_Keyword_BPL,
+	emu_Keyword_BMI,
+	emu_Keyword_BVC,
+	emu_Keyword_BVS,
 	emu_Keyword_BCC,
+	emu_Keyword_BCS,
+	emu_Keyword_BNE,
+	emu_Keyword_BEQ,
+	emu_Keyword_SEC,
+	emu_Keyword_CLC,
 
 	// Logical/Arithmetic commands
 	emu_Keyword_ORA,
@@ -72,6 +81,7 @@ typedef enum emu_TokenType
 	emu_TokenType_Symbol,
 	emu_TokenType_String,
 	emu_TokenType_Comma,
+	emu_TokenType_Plus,
 	emu_TokenType_Colon,
 	emu_TokenType_ImmediateConstant,
 	emu_TokenType_ByteConstant,

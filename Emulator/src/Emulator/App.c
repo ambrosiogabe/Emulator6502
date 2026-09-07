@@ -39,26 +39,27 @@ static void flushScanf()
 
 void emu_app_run(emu_app* app)
 {
-	bool runInteractive = false;
+	bool runInteractive = true;
 
 	// For now, let's just read a file and parse it?
-	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\04_looping.s";
+	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.s";
 
-	emu_assembler_program program = emu_assembler_assembleProgram(programFile, KB(512));
+	emu_assembler_program program = emu_assembler_assembleProgram(programFile, UINT16_MAX);
 	//emu_vm_printOpcodes(program.program, program.size);
 
+	emu_vm_loadProgram(app->vm, &program);
 	emu_vm_resetMachine(app->vm);
-	emu_vm_loadProgram(app->vm, program.data, program.size);
 
 	emu_vmError error = emu_vmError_None;
+	uint8* memory = app->vm->mmap.physicalMemory;
 	while (error == emu_vmError_None)
 	{
-		uint8 nextInstruction = app->vm->rom[app->vm->programCounter];
+		uint8 nextInstruction = memory[app->vm->programCounter];
 		error = emu_vm_tick(app->vm);
 
 		if (runInteractive && !error)
 		{
-			printf(">| <%d>: '%s'\n", app->vm->programCounter, emu_vmInstructions[nextInstruction]);
+			printf(">| <%X>: '%s'\n", app->vm->programCounter, emu_vmInstructions[nextInstruction]);
 			printf(">| Press S to VM Status, R to see ram, any other key to continue: ");
 			char input = (char)_getch();
 			printf("\n");
