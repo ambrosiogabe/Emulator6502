@@ -2,6 +2,8 @@
 #define EMU_ASSEMBLER_H
 #include "utils/SafeVendor.h"
 
+typedef struct emu_MemoryMap emu_MemoryMap;
+
 typedef struct emu_assembler_program
 {
 	uint8* data;
@@ -11,7 +13,7 @@ typedef struct emu_assembler_program
 	uint16 irqBrkVector;
 } emu_assembler_program;
 
-emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t programSize);
+emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const mmap, const char* filename, size_t programSize);
 void emu_assembler_free(emu_assembler_program* program);
 
 #endif

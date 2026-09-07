@@ -44,7 +44,7 @@ void emu_app_run(emu_app* app)
 	// For now, let's just read a file and parse it?
 	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.s";
 
-	emu_assembler_program program = emu_assembler_assembleProgram(programFile, UINT16_MAX);
+	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, programFile, UINT16_MAX);
 	//emu_vm_printOpcodes(program.program, program.size);
 
 	emu_vm_loadProgram(app->vm, &program);

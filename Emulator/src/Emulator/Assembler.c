@@ -1,6 +1,7 @@
 #include "Emulator/Assembler.h"
 #include "Emulator/Parser.h"
 #include "Emulator/VirtualMachine.h"
+#include "Emulator/MemoryMap.h"
 #include "utils/FileHelper.h"
 #include "utils/SafeVendor.h"
 
@@ -124,6 +125,7 @@ typedef struct emu_Assembler
 
 	emu_Label* labels;
 	emu_PatchLocation* patches;
+	emu_MemoryMap const* const mmap;
 } emu_Assembler;
 
 // Internal Functions
@@ -165,7 +167,7 @@ static emu_TokenType peek(emu_Assembler* assembler);
 static emu_TokenType peekMulti(emu_Assembler* assembler, size_t offset);
 
 // Public Functions
-emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t programSize)
+emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const mmap, const char* filename, size_t programSize)
 {
 	emu_TokenList tokenList = emu_parser_parseFile(filename);
 
@@ -183,6 +185,7 @@ emu_assembler_program emu_assembler_assembleProgram(const char* filename, size_t
 	.tokenList = &tokenList,
 	.labels = NULL,
 	.patches = NULL,
+	.mmap = mmap,
 	};
 
 	// Start off with writing to Code segment
@@ -303,7 +306,8 @@ static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* 
 	char* symbolString = g_memory_allocate(token->length + 1);
 	g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + token->start, token->length);
 	symbolString[token->length] = '\0';
-	stbds_shput(assembler->labels, symbolString, (uint16)(assembler->writeIndex - assembler->writeIndexStart));
+	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
+	stbds_shput(assembler->labels, symbolString, prgAddress + assembler->mmap->as.nes.rom.start);
 
 	return emu_StatementError_None;
 }
@@ -366,9 +370,10 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 				char* symbolString = g_memory_allocate(patchToken->length + 1);
 				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
 				symbolString[patchToken->length] = '\0';
+				uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 				emu_PatchLocation patch = {
 					.label = symbolString,
-					.romAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart),
+					.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 					.token = patchToken,
 					.type = emu_PatchType_RelativeJump,
 					.writePtr = assembler->writeIndex,
@@ -396,9 +401,10 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 				char* symbolString = g_memory_allocate(patchToken->length + 1);
 				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
 				symbolString[patchToken->length] = '\0';
+				uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 				emu_PatchLocation patch = {
 					.label = symbolString,
-					.romAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart),
+					.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 					.token = patchToken,
 					.type = emu_PatchType_GlobalAddress,
 					.writePtr = assembler->writeIndex,
@@ -415,9 +421,10 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 				char* symbolString = g_memory_allocate(patchToken->length + 1);
 				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
 				symbolString[patchToken->length] = '\0';
+				uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 				emu_PatchLocation patch = {
 					.label = symbolString,
-					.romAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart),
+					.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 					.token = patchToken,
 					.type = emu_PatchType_GlobalAddress,
 					.writePtr = assembler->writeIndex,
@@ -648,10 +655,11 @@ static emu_StatementError emu_parseControlAddr(emu_Assembler* assembler)
 	g_memory_copyMem(addr, assembler->tokenList->sourceFile->data + addrToken->start, addrToken->length);
 	addr[addrToken->length] = '\0';
 
+	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 	emu_PatchLocation patch = {
 	.label = addr,
 	.writePtr = assembler->writeIndex,
-	.romAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart),
+	.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 	.token = addrToken,
 	.type = emu_PatchType_GlobalAddress,
 	};
@@ -676,7 +684,8 @@ static emu_StatementError emu_parseProc(emu_Assembler* assembler)
 	addr[addrToken->length] = '\0';
 
 	// Record location of label
-	stbds_shput(assembler->labels, addr, (uint16)(assembler->writeIndex - assembler->writeIndexStart));
+	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
+	stbds_shput(assembler->labels, addr, prgAddress + assembler->mmap->as.nes.rom.start);
 	return emu_StatementError_None;
 }
 

@@ -13,25 +13,12 @@ typedef struct emu_AddressRange
 typedef struct emu_NesMemoryMap
 {
 	// TODO: Figure out how to properly emulate this stuff
-	//emu_AddressRange header;
-	//emu_AddressRange sram;
-	//emu_AddressRange ram;
-	//emu_AddressRange rom0;
-	//emu_AddressRange romv;
-	//emu_AddressRange rom2;
-
-	//uint8* headerPtr;
-	//uint8* sramPtr;
-	//uint8* ramPtr;
-	//uint8* rom0Ptr;
-	//uint8* romvPtr;
-	//uint8* rom2Ptr;
 	emu_AddressRange ram;
-	emu_AddressRange io;
+	//emu_AddressRange io;
 	emu_AddressRange rom;
 
 	uint8* ramPtr;
-	uint8* ioPtr;
+	//uint8* ioPtr;
 	uint8* romPtr;
 } emu_NesMemoryMap;
 

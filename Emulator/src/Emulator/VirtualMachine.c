@@ -21,6 +21,7 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 static uint8 getNext(emu_virtualMachine* vm);
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
+static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress);
 static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address);
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
@@ -51,6 +52,16 @@ case caseName:\
 {\
   uint8 address = getNext(vm);\
   function(vm, instruction, emu_mmap_getNesAddress(&vm->mmap, address)[0]);\
+}\
+break
+
+#define INSTRUCTION_EXPANSION_LONG_RAM(caseName, function) \
+case caseName:\
+{\
+  uint8 lo = getNext(vm);\
+  uint8 hi = getNext(vm);\
+  uint16 globalAddress = (hi << 8) | lo;\
+  function(vm, instruction, emu_mmap_getNesAddress(&vm->mmap, globalAddress));\
 }\
 break
 
@@ -353,9 +364,8 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* pr
 	nmiVector[0] = (program->nmiVector & 0xFF);
 	nmiVector[1] = ((program->nmiVector >> 8) & 0xFF);
 
-	uint16 romOffset = (uint16)(vm->mmap.as.nes.romPtr - vm->mmap.physicalMemory);
-	resetVector[0] = ((program->resetVector + romOffset) & 0xFF);
-	resetVector[1] = (((program->resetVector + romOffset) >> 8) & 0xFF);
+	resetVector[0] = (program->resetVector & 0xFF);
+	resetVector[1] = ((program->resetVector >> 8) & 0xFF);
 
 	irqBrkVector[0] = (program->irqBrkVector & 0xFF);
 	irqBrkVector[1] = ((program->irqBrkVector >> 8) & 0xFF);
@@ -458,6 +468,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION(emu_vmInstruction_LDA_IMM, setRegisterValue);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_LDX_IMM, setRegisterValue);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_LDY_IMM, setRegisterValue);
+		// Load absolute
+		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_LDA_ABX, setAbsRegisterValue);
 		// Add with carry
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ADC_ZP, addWithCarry);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ADC_IMM, addWithCarry);
@@ -528,7 +540,7 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// If carry flag is set, jump
 		if (emu_vm_getStatus(vm, emu_vmStatus_Carry))
 		{
-			int16 relativeAddress = ((uint16)address0 << 8) | address1;
+			int16 relativeAddress = ((uint16)address1 << 8) | address0;
 			// We need to subtract the 2 bytes that our program counter has already incremented
 			vm->programCounter += (relativeAddress - 2);
 		}
@@ -606,6 +618,19 @@ static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 	case emu_vmInstruction_CPY_ZP:
 	case emu_vmInstruction_CPY_IMM:
 		vm->yReg = value;
+		break;
+	default:
+		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);
+		break;
+	}
+}
+
+static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress)
+{
+	switch (instruction)
+	{
+	case emu_vmInstruction_LDA_ABX:
+		vm->accumulatorReg = baseAddress[vm->xReg];
 		break;
 	default:
 		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);

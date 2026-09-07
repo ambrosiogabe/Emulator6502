@@ -8,9 +8,9 @@ emu_MemoryMap emu_mmap_newNesMap(size_t physicalMemorySize)
 	emu_AddressRange stack = { .start = 0x0100, .end = 0x01ff };
 	emu_AddressRange interruptVector = { .start = 0xfffa, .end = 0xffff };
 
-	emu_AddressRange io = { .start = 0x8000, .end = 0xefff };
+	//emu_AddressRange io = { .start = 0x8000, .end = 0xefff };
 	emu_AddressRange ram = { .start = 0x0000, .end = 0x7fff };
-	emu_AddressRange rom = { .start = 0xf000, .end = 0xffff };
+	emu_AddressRange rom = { .start = 0x8000, .end = 0xffff };
 
 	emu_MemoryMap res = {
 		.physicalMemory = physicalMemory,
@@ -22,8 +22,8 @@ emu_MemoryMap emu_mmap_newNesMap(size_t physicalMemorySize)
 		.interruptVector = interruptVector,
 		.interruptVectorPtr = physicalMemory + interruptVector.start,
 		.as = (emu_NesMemoryMap) {
-			.io = io,
-			.ioPtr = physicalMemory + io.start,
+			//.io = io,
+			//.ioPtr = physicalMemory + io.start,
 			.ram = ram,
 			.ramPtr = physicalMemory + ram.start,
 			.rom = rom,
