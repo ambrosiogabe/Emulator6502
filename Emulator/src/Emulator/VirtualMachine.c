@@ -258,7 +258,7 @@ void emu_vm_printRam(emu_virtualMachine* vm, uint16 address, uint16 numBytes)
 	for (size_t i = 0; i < numBytes; i++)
 	{
 		printf("0x%04X: ", (uint16)(address + i));
-		printf("0x%02X ", ramPtr[address + i]);
+		printf("0x%02X ", ramPtr[i]);
 		printf("\n");
 	}
 }
@@ -332,6 +332,7 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* pr
 
 	if (emu_mmap_getSize(vm->mmap.as.nes.rom) < program->size)
 	{
+		g_logger_error("Not enough room in program for rom: %u > %u", emu_mmap_getSize(vm->mmap.as.nes.rom), program->size);
 		return emu_vmError_NotEnoughROM;
 	}
 
@@ -352,11 +353,9 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* pr
 	nmiVector[0] = (program->nmiVector & 0xFF);
 	nmiVector[1] = ((program->nmiVector >> 8) & 0xFF);
 
-	// TODO: Dynamically load this from program that is being flashed
-	//resetVector[0] = (program->resetVector & 0xFF);
-	//resetVector[1] = ((program->resetVector >> 8) & 0xFF);
-	resetVector[0] = (vm->mmap.as.nes.rom.start & 0xFF);
-	resetVector[1] = ((vm->mmap.as.nes.rom.start >> 8) & 0xFF);
+	uint16 romOffset = (uint16)(vm->mmap.as.nes.romPtr - vm->mmap.physicalMemory);
+	resetVector[0] = ((program->resetVector + romOffset) & 0xFF);
+	resetVector[1] = (((program->resetVector + romOffset) >> 8) & 0xFF);
 
 	irqBrkVector[0] = (program->irqBrkVector & 0xFF);
 	irqBrkVector[1] = ((program->irqBrkVector >> 8) & 0xFF);

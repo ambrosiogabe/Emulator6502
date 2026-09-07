@@ -15,6 +15,7 @@ const char* emu_ControlCommands[] = {
 	"proc",
 	"endproc",
 	"byte",
+	"addr",
 	"LENGTH",
 	"NULL"
 };
