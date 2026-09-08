@@ -17,4 +17,6 @@ typedef enum emu_fileResult
 emu_fileResult emu_file_read(const char* filename, emu_file* file);
 void emu_file_free(emu_file* file);
 
+void emu_file_write(const char* filename, uint8* binaryData, size_t dataSize);
+
 #endif

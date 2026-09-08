@@ -4,10 +4,6 @@
 #include <stdio.h>
 #include <string.h>
 
-static const uint16 nmiVectorAddress = 0xFFFA;
-static const uint16 resetVectorAddress = 0xFFFC;
-static const uint16 irqBrkVectorAddress = 0xFFFE;
-
 // --------------- Internal Structures --------------- 
 typedef struct VmInstruction
 {
@@ -343,32 +339,36 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* pr
 
 	if (emu_mmap_getSize(vm->mmap.as.nes.rom) < program->size)
 	{
-		g_logger_error("Not enough room in program for rom: %u > %u", emu_mmap_getSize(vm->mmap.as.nes.rom), program->size);
+		g_logger_error("Not enough room in program for rom: %u < %u", emu_mmap_getSize(vm->mmap.as.nes.rom), program->size);
 		return emu_vmError_NotEnoughROM;
 	}
 
 	// Load the program into ROM
-	g_memory_copyMem(vm->mmap.as.nes.romPtr, program->data, program->size);
+	uint8* romPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.rom.start;
+	g_memory_copyMem(romPtr, program->data, program->size);
 
 	// Set all instructions after end of program to illegal opcodes
 	for (size_t i = program->size; i < emu_mmap_getSize(vm->mmap.as.nes.rom); i++)
 	{
-		vm->mmap.as.nes.romPtr[i] = emu_vmInstruction_ILLEGAL;
+		romPtr[i] = emu_vmInstruction_ILLEGAL;
 	}
 
 	// Set the special vectors at the end of rom
-	uint8* nmiVector = emu_mmap_getNesAddress(&vm->mmap, nmiVectorAddress);
-	uint8* resetVector = emu_mmap_getNesAddress(&vm->mmap, resetVectorAddress);
-	uint8* irqBrkVector = emu_mmap_getNesAddress(&vm->mmap, irqBrkVectorAddress);
+	// Each vector is 2 bytes large. So the nmi is located at +0, the reset
+	// is at +2, and the irqBrk is at +4 from the base location of the vectors.
+	//uint8* hardwareVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
+	//uint8* nmiVector = hardwareVectorPtr + 0;
+	//uint8* resetVector = hardwareVectorPtr + 2;
+	//uint8* irqBrkVector = hardwareVectorPtr + 4;
 
-	nmiVector[0] = (program->nmiVector & 0xFF);
-	nmiVector[1] = ((program->nmiVector >> 8) & 0xFF);
+	//nmiVector[0] = (program->nmiVector & 0xFF);
+	//nmiVector[1] = ((program->nmiVector >> 8) & 0xFF);
 
-	resetVector[0] = (program->resetVector & 0xFF);
-	resetVector[1] = ((program->resetVector >> 8) & 0xFF);
+	//resetVector[0] = (program->resetVector & 0xFF);
+	//resetVector[1] = ((program->resetVector >> 8) & 0xFF);
 
-	irqBrkVector[0] = (program->irqBrkVector & 0xFF);
-	irqBrkVector[1] = ((program->irqBrkVector >> 8) & 0xFF);
+	//irqBrkVector[0] = (program->irqBrkVector & 0xFF);
+	//irqBrkVector[1] = ((program->irqBrkVector >> 8) & 0xFF);
 
 	return emu_vmError_None;
 }
@@ -391,10 +391,12 @@ emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm)
 	vm->statusReg = 0;
 
 	// NOTE: We don't do anything with ROM here because on reset, only ram should be cleared.
-	g_memory_zeroMem(vm->mmap.as.nes.ramPtr, emu_mmap_getSize(vm->mmap.as.nes.ram));
+	uint8* ramPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.ram.start;
+	g_memory_zeroMem(ramPtr, emu_mmap_getSize(vm->mmap.as.nes.ram));
 
 	// Read the reset vector into our program counter so we know where to start executing code.
-	uint8* resetVector = emu_mmap_getNesAddress(&vm->mmap, resetVectorAddress);
+	uint8* hardwareVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
+	uint8* resetVector = hardwareVectorPtr + 2;
 	vm->programCounter = resetVector[0];
 	vm->programCounter |= (resetVector[1] << 8);
 

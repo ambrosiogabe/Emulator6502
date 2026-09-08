@@ -3,6 +3,7 @@
 #include "Emulator/VirtualMachine.h"
 #include "Emulator/Assembler.h"
 #include "Emulator/Types.h"
+#include "utils/FileHelper.h"
 #include "utils/SafeVendor.h"
 
 #include <stb/stb_ds.h>
@@ -43,8 +44,10 @@ void emu_app_run(emu_app* app)
 
 	// For now, let's just read a file and parse it?
 	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.s";
+	const char* outputFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.bin";
 
 	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, programFile, UINT16_MAX);
+	emu_file_write(outputFile, program.data, program.size);
 	//emu_vm_printOpcodes(program.program, program.size);
 
 	emu_vm_loadProgram(app->vm, &program);

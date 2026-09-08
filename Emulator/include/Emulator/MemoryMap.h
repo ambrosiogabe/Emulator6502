@@ -14,12 +14,10 @@ typedef struct emu_NesMemoryMap
 {
 	// TODO: Figure out how to properly emulate this stuff
 	emu_AddressRange ram;
-	//emu_AddressRange io;
 	emu_AddressRange rom;
-
-	uint8* ramPtr;
-	//uint8* ioPtr;
-	uint8* romPtr;
+	// ROM Vector, for Hardware Vectors
+	emu_AddressRange romv;
+	emu_AddressRange header;
 } emu_NesMemoryMap;
 
 typedef struct emu_CommodoreMemoryMap
@@ -31,13 +29,6 @@ typedef struct emu_MemoryMap
 {
 	uint8* physicalMemory;
 	size_t physicalMemorySize;
-
-	emu_AddressRange zeroPage;
-	uint8* zeroPagePtr;
-	emu_AddressRange stack;
-	uint8* stackPtr;
-	emu_AddressRange interruptVector;
-	uint8* interruptVectorPtr;
 
 	union
 	{

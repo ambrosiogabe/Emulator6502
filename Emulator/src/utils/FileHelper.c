@@ -56,3 +56,18 @@ void emu_file_free(emu_file* file)
 	g_memory_free(file->data);
 	g_memory_zeroMem(file, sizeof(emu_file));
 }
+
+void emu_file_write(const char* filename, uint8* binaryData, size_t dataSize)
+{
+	// Open file in "wb" (write binary) mode
+	FILE* file = fopen(filename, "wb");
+	if (file == NULL)
+	{
+		g_logger_error("Could not open file '%s'.", filename);
+		return;
+	}
+
+	// Write the entire array to the file
+	fwrite(binaryData, dataSize, 1, file);
+	fclose(file);
+}

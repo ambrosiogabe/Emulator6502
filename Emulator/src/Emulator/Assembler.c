@@ -120,9 +120,6 @@ typedef struct emu_Assembler
 	uint8* writeIndex;
 	size_t writeIndexSize;
 
-	uint8 header[16];
-	uint8 vector[6];
-
 	emu_Label* labels;
 	emu_PatchLocation* patches;
 	emu_MemoryMap const* const mmap;
@@ -243,17 +240,12 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 	stbds_arrfree(assembler.patches);
 	stbds_shfree(assembler.labels);
 
-	uint16 nmi = assembler.vector[0] | (assembler.vector[1] << 8);
-	uint16 reset = assembler.vector[2] | (assembler.vector[3] << 8);
-	uint16 irq = assembler.vector[4] | (assembler.vector[5] << 8);
-
 	return (emu_assembler_program)
 	{
 		.data = assembler.program.data,
-			.size = assembler.writeIndex - assembler.writeIndexStart,
-			.irqBrkVector = irq,
-			.nmiVector = nmi,
-			.resetVector = reset,
+			.size = emu_mmap_getSize(assembler.mmap->as.nes.header) 
+			+ emu_mmap_getSize(assembler.mmap->as.nes.rom) 
+			+ emu_mmap_getSize(assembler.mmap->as.nes.romv),
 	};
 }
 
@@ -596,31 +588,44 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 	if (strcmp("\"HEADER\"", segmentNameStr) == 0)
 	{
 		// Set our write index to header segment
+		emu_AddressRange headerRange = assembler->mmap->as.nes.header;
+		uint16 headerOffset = headerRange.start;
+		g_logger_assert(headerOffset + emu_mmap_getSize(headerRange) <= assembler->program.size, "Overflow");
 		emu_setWriteIndex(
 			assembler,
-			assembler->header,
-			assembler->header,
-			sizeof(assembler->header)
+			assembler->program.data + headerOffset,
+			assembler->program.data + headerOffset,
+			emu_mmap_getSize(headerRange)
 		);
 	}
 	else if (strcmp("\"VECTORS\"", segmentNameStr) == 0)
 	{
 		// Set our write index to vector segment
+		// Vector segment starts after Code + Header segments
+		emu_AddressRange headerRange = assembler->mmap->as.nes.header;
+		emu_AddressRange romRange = assembler->mmap->as.nes.rom;
+		emu_AddressRange vectorRange = assembler->mmap->as.nes.romv;
+		uint16 vectorOffset = headerRange.start + (uint16)(emu_mmap_getSize(headerRange) + emu_mmap_getSize(romRange));
+		g_logger_assert(vectorOffset + emu_mmap_getSize(vectorRange) <= assembler->program.size, "Overflow");
 		emu_setWriteIndex(
 			assembler,
-			assembler->vector,
-			assembler->vector,
-			sizeof(assembler->vector)
+			assembler->program.data + vectorOffset,
+			assembler->program.data + vectorOffset,
+			emu_mmap_getSize(vectorRange)
 		);
 	}
 	else if (strcmp("\"CODE\"", segmentNameStr) == 0)
 	{
 		// Set our write index to code segment
+		// Code segment starts right after Header segment
+		emu_AddressRange headerRange = assembler->mmap->as.nes.header;
+		emu_AddressRange romRange = assembler->mmap->as.nes.rom;
+		uint16 romOffset = headerRange.start + (uint16)emu_mmap_getSize(headerRange);
 		emu_setWriteIndex(
 			assembler,
-			assembler->program.data,
-			assembler->program.data,
-			assembler->program.size
+			assembler->program.data + romOffset,
+			assembler->program.data + romOffset,
+			emu_mmap_getSize(romRange)
 		);
 	}
 	else
@@ -847,7 +852,7 @@ static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode)
 
 static void emu_emitByte(emu_Assembler* assembler, uint8 opcode)
 {
-	if ((size_t)(assembler->writeIndex - assembler->writeIndexStart) >= assembler->writeIndexSize)
+	if ((size_t)(assembler->writeIndex - assembler->writeIndexStart) > assembler->writeIndexSize)
 	{
 		g_logger_error("Cannot write any more bytes. Ran out of memory.");
 		return;
