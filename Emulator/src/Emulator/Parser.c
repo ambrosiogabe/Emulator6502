@@ -76,6 +76,7 @@ const char* emu_TokenTypes[] = {
 	"Comment",
 	"Symbol",
 	"String",
+	"Character",
 	"Comma",
 	"Plus",
 	"Colon",
@@ -123,6 +124,7 @@ static emu_Token emu_makeToken(emu_TokenType tokenType, size_t start, size_t end
 static emu_Symbol emu_parseSymbol(emu_Parser* parser);
 static emu_ControlCommand emu_parseControlCommand(emu_Parser* parser);
 static emu_StringConstant emu_parseStringConstant(emu_Parser* parser);
+static char emu_parseCharConstant(emu_Parser* parser);
 static emu_Keyword emu_isKeyword(emu_Parser* parser, emu_Symbol symbol);
 static uint8 emu_parseNumberConstant(emu_Parser* parser);
 static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly);
@@ -247,6 +249,16 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 	{
 		emu_parseStringConstant(parser);
 		return emu_makeToken(emu_TokenType_String, start, parser->current, line, column, (emu_TokenData) { 0 });
+	}
+	case '\'':
+	{
+		char charConstant = emu_parseCharConstant(parser);
+		return emu_makeToken(emu_TokenType_Character, start, parser->current, line, column, (emu_TokenData) { .byteConstant = charConstant });
+	}
+	case '%':
+	{
+		uint8 binaryConstant = emu_parseBinaryConstant(parser);
+		return emu_makeToken(emu_TokenType_ImmediateConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = binaryConstant });
 	}
 	case '#':
 	case '0':
@@ -386,6 +398,17 @@ static emu_StringConstant emu_parseStringConstant(emu_Parser* parser)
 
 	strConstant.length = parser->current - strConstant.start - 1;
 	return strConstant;
+}
+
+static char emu_parseCharConstant(emu_Parser* parser)
+{
+	// Parse beginning '\''
+	emu_expectChar(parser, '\'');
+	char result = emu_getChar(parser);
+	// Parse end '\''
+	emu_expectChar(parser, '\'');
+
+	return result;
 }
 
 static uint8 emu_parseNumberConstant(emu_Parser* parser)

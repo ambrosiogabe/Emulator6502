@@ -711,7 +711,7 @@ static emu_StatementError emu_parseProc(emu_Assembler* assembler)
 static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler)
 {
 	emu_Token const* token = NULL;
-	emu_TokenType expectedTypes[] = { emu_TokenType_ImmediateConstant, emu_TokenType_ByteConstant };
+	emu_TokenType expectedTypes[] = { emu_TokenType_ImmediateConstant, emu_TokenType_ByteConstant, emu_TokenType_Character };
 	do
 	{
 		token = emu_expectOneOf(assembler, expectedTypes, (sizeof(expectedTypes) / sizeof(emu_TokenType)));
@@ -719,6 +719,7 @@ static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler)
 		{
 			return emu_StatementError_Invalid;
 		}
+
 		emu_emitByte(assembler, token->data.byteConstant);
 
 		if (peek(assembler) != emu_TokenType_Comma)
