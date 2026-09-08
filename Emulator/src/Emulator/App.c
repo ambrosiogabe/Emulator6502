@@ -47,7 +47,7 @@ void emu_app_run(emu_app* app)
 	const char* outputFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.bin";
 
 	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, programFile, UINT16_MAX);
-	emu_file_write(outputFile, program.data, program.size);
+	emu_file_write(outputFile, program.data, program.dataSize);
 	//emu_vm_printOpcodes(program.program, program.size);
 
 	emu_vm_loadProgram(app->vm, &program);

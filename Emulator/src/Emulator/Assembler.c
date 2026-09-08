@@ -174,7 +174,7 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 	//}
 
 	emu_Assembler assembler = {
-		.program = {.data = g_memory_allocate(programSize), .size = programSize },
+		.program = {.data = g_memory_allocate(programSize), .dataSize = programSize },
 	.current = 0,
 	.writeIndex = NULL,
 	.writeIndexStart = NULL,
@@ -184,6 +184,12 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 	.patches = NULL,
 	.mmap = mmap,
 	};
+
+	// Initialize to BRK instructions
+	for (size_t i = 0; i < programSize; i++)
+	{
+		assembler.program.data[i] = emu_vmInstruction_BRK;
+	}
 
 	// Start off with writing to Code segment
 	assembler.writeIndex = assembler.program.data;
@@ -240,12 +246,20 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 	stbds_arrfree(assembler.patches);
 	stbds_shfree(assembler.labels);
 
+	size_t romvSize = emu_mmap_getSize(assembler.mmap->as.nes.romv);
+	size_t headerSize = emu_mmap_getSize(assembler.mmap->as.nes.header);
+	size_t romSize = emu_mmap_getSize(assembler.mmap->as.nes.rom);
+
 	return (emu_assembler_program)
 	{
 		.data = assembler.program.data,
-			.size = emu_mmap_getSize(assembler.mmap->as.nes.header) 
-			+ emu_mmap_getSize(assembler.mmap->as.nes.rom) 
-			+ emu_mmap_getSize(assembler.mmap->as.nes.romv),
+			.dataSize = headerSize + romvSize + romSize,
+			.header = assembler.program.data,
+			.headerSize = headerSize,
+			.rom = assembler.program.data + headerSize,
+			.romSize = romSize,
+			.romv = assembler.program.data + headerSize + romSize,
+			.romvSize = romvSize,
 	};
 }
 
@@ -590,7 +604,7 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 		// Set our write index to header segment
 		emu_AddressRange headerRange = assembler->mmap->as.nes.header;
 		uint16 headerOffset = headerRange.start;
-		g_logger_assert(headerOffset + emu_mmap_getSize(headerRange) <= assembler->program.size, "Overflow");
+		g_logger_assert(headerOffset + emu_mmap_getSize(headerRange) <= assembler->program.dataSize, "Overflow");
 		emu_setWriteIndex(
 			assembler,
 			assembler->program.data + headerOffset,
@@ -606,7 +620,7 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 		emu_AddressRange romRange = assembler->mmap->as.nes.rom;
 		emu_AddressRange vectorRange = assembler->mmap->as.nes.romv;
 		uint16 vectorOffset = headerRange.start + (uint16)(emu_mmap_getSize(headerRange) + emu_mmap_getSize(romRange));
-		g_logger_assert(vectorOffset + emu_mmap_getSize(vectorRange) <= assembler->program.size, "Overflow");
+		g_logger_assert(vectorOffset + emu_mmap_getSize(vectorRange) <= assembler->program.dataSize, "Overflow");
 		emu_setWriteIndex(
 			assembler,
 			assembler->program.data + vectorOffset,

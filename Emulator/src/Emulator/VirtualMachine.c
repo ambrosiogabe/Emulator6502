@@ -337,38 +337,28 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* pr
 		return emu_vmError_NullVm;
 	}
 
-	if (emu_mmap_getSize(vm->mmap.as.nes.rom) < program->size)
+	// TODO: In the future, read the header and make the appropriate adjustments
+	//       For now, we'll just discard it
+
+	if (emu_mmap_getSize(vm->mmap.as.nes.rom) < program->romSize)
 	{
-		g_logger_error("Not enough room in program for rom: %u < %u", emu_mmap_getSize(vm->mmap.as.nes.rom), program->size);
+		g_logger_error("Not enough room in program for rom: %u < %u", emu_mmap_getSize(vm->mmap.as.nes.rom), program->romSize);
 		return emu_vmError_NotEnoughROM;
 	}
 
 	// Load the program into ROM
 	uint8* romPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.rom.start;
-	g_memory_copyMem(romPtr, program->data, program->size);
+	g_memory_copyMem(romPtr, program->rom, program->romSize);
 
 	// Set all instructions after end of program to illegal opcodes
-	for (size_t i = program->size; i < emu_mmap_getSize(vm->mmap.as.nes.rom); i++)
+	for (size_t i = program->romSize; i < emu_mmap_getSize(vm->mmap.as.nes.rom); i++)
 	{
-		romPtr[i] = emu_vmInstruction_ILLEGAL;
+		romPtr[i] = emu_vmInstruction_BRK;
 	}
 
-	// Set the special vectors at the end of rom
-	// Each vector is 2 bytes large. So the nmi is located at +0, the reset
-	// is at +2, and the irqBrk is at +4 from the base location of the vectors.
-	//uint8* hardwareVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
-	//uint8* nmiVector = hardwareVectorPtr + 0;
-	//uint8* resetVector = hardwareVectorPtr + 2;
-	//uint8* irqBrkVector = hardwareVectorPtr + 4;
-
-	//nmiVector[0] = (program->nmiVector & 0xFF);
-	//nmiVector[1] = ((program->nmiVector >> 8) & 0xFF);
-
-	//resetVector[0] = (program->resetVector & 0xFF);
-	//resetVector[1] = ((program->resetVector >> 8) & 0xFF);
-
-	//irqBrkVector[0] = (program->irqBrkVector & 0xFF);
-	//irqBrkVector[1] = ((program->irqBrkVector >> 8) & 0xFF);
+	// Load the hardware vectors at the end of rom
+	uint8* hardwareVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
+	g_memory_copyMem(hardwareVectorPtr, program->romv, program->romvSize);
 
 	return emu_vmError_None;
 }
