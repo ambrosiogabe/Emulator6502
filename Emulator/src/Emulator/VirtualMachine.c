@@ -19,6 +19,7 @@ static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruct
 static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
 static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress);
 static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address);
+static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress);
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void compare(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
@@ -72,7 +73,7 @@ void emu_vm_initDebug()
 
 	emu_vmInstructions[emu_vmInstruction_BRK] = "BRK";
 	emu_vmInstructions[emu_vmInstruction_CLC_IMP] = "CLC_IMP";
-	emu_vmInstructions[emu_vmInstruction_SEC_IMP] = "CLC_IMP";
+	emu_vmInstructions[emu_vmInstruction_SEC_IMP] = "SEC_IMP";
 	emu_vmInstructions[emu_vmInstruction_RTS_IMP] = "RTS_IMP";
 	// -- OR instructions --
 	emu_vmInstructions[emu_vmInstruction_ORA_IMM] = "ORA_IMM";
@@ -462,6 +463,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION(emu_vmInstruction_LDY_IMM, setRegisterValue);
 		// Load absolute
 		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_LDA_ABX, setAbsRegisterValue);
+		// Store absolute
+		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STA_ABX, storeAbsRamValue);
 		// Add with carry
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ADC_ZP, addWithCarry);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ADC_IMM, addWithCarry);
@@ -531,6 +534,34 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 
 		// If carry flag is set, jump
 		if (emu_vm_getStatus(vm, emu_vmStatus_Carry))
+		{
+			int16 relativeAddress = ((uint16)address1 << 8) | address0;
+			// We need to subtract the 2 bytes that our program counter has already incremented
+			vm->programCounter += (relativeAddress - 2);
+		}
+	}
+	break;
+	case emu_vmInstruction_BPL_REL:
+	{
+		uint8 address0 = getNext(vm);
+		uint8 address1 = getNext(vm);
+
+		// If negative flag is not set (it's postivie number) jump
+		if (!emu_vm_getStatus(vm, emu_vmStatus_Negative))
+		{
+			int16 relativeAddress = ((uint16)address1 << 8) | address0;
+			// We need to subtract the 2 bytes that our program counter has already incremented
+			vm->programCounter += (relativeAddress - 2);
+		}
+	}
+	break;
+	case emu_vmInstruction_BNE_REL:
+	{
+		uint8 address0 = getNext(vm);
+		uint8 address1 = getNext(vm);
+
+		// If zero flag is not set (numbers are not equal) jump
+		if (!emu_vm_getStatus(vm, emu_vmStatus_Zero))
 		{
 			int16 relativeAddress = ((uint16)address1 << 8) | address0;
 			// We need to subtract the 2 bytes that our program counter has already incremented
@@ -634,6 +665,19 @@ static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction,
 {
 	uint8* ramPtr = emu_mmap_getNesAddress(&vm->mmap, address);
 	*ramPtr = getRegisterValue(vm, instruction);
+}
+
+static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress)
+{
+	switch (instruction)
+	{
+	case emu_vmInstruction_STA_ABX:
+		baseAddress[vm->xReg] = vm->accumulatorReg;
+		break;
+	default:
+		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);
+		break;
+	}
 }
 
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)

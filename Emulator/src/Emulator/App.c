@@ -43,8 +43,8 @@ void emu_app_run(emu_app* app)
 	bool runInteractive = true;
 
 	// For now, let's just read a file and parse it?
-	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.s";
-	const char* outputFile = "G:\\dev\\6502\\testProject\\tutorial\\03_branching.bin";
+	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\04_looping.s";
+	const char* outputFile = "G:\\dev\\6502\\testProject\\tutorial\\04_looping.bin";
 
 	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, programFile, UINT16_MAX);
 	emu_file_write(outputFile, program.data, program.dataSize);

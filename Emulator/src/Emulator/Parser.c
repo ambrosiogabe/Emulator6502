@@ -128,6 +128,7 @@ static char emu_parseCharConstant(emu_Parser* parser);
 static emu_Keyword emu_isKeyword(emu_Parser* parser, emu_Symbol symbol);
 static uint8 emu_parseNumberConstant(emu_Parser* parser);
 static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly);
+static uint16 emu_parseAddressConstantWithLength(emu_Parser* parser, bool oneByteOnly, bool* isAbsolute);
 static uint8 emu_parseBinaryConstant(emu_Parser* parser);
 static void emu_skipToEndOfLine(emu_Parser* parser);
 
@@ -277,8 +278,19 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 	}
 	case '$':
 	{
-		uint8 numberConstant = (uint8)emu_parseAddressConstant(parser, false);
-		return emu_makeToken(emu_TokenType_ByteConstant, start, parser->current, line, column, (emu_TokenData) { .byteConstant = numberConstant });
+		bool isAbsolute;
+		uint16 numberConstant = emu_parseAddressConstantWithLength(parser, false, &isAbsolute);
+		emu_TokenType type = isAbsolute ? emu_TokenType_TwoByteConstant : emu_TokenType_ByteConstant;
+		emu_TokenData data = { 0 };
+		if (isAbsolute)
+		{
+			data.twoByteConstant = numberConstant;
+		}
+		else
+		{
+			data.byteConstant = (uint8)numberConstant;
+		}
+		return emu_makeToken(type, start, parser->current, line, column, data);
 	}
 	case ',':
 		emu_getChar(parser);
@@ -429,6 +441,12 @@ static uint8 emu_parseNumberConstant(emu_Parser* parser)
 
 static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
 {
+	bool isAbsolute;
+	return emu_parseAddressConstantWithLength(parser, oneByteOnly, &isAbsolute);
+}
+
+static uint16 emu_parseAddressConstantWithLength(emu_Parser* parser, bool oneByteOnly, bool* isAbsolute)
+{
 	size_t columnStart = parser->currentColumn;
 
 	char start = emu_getChar(parser);
@@ -501,6 +519,7 @@ static uint16 emu_parseAddressConstant(emu_Parser* parser, bool oneByteOnly)
 		return 0;
 	}
 
+	*isAbsolute = digitCharLength > 2;
 	return result;
 }
 

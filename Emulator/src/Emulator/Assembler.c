@@ -144,7 +144,7 @@ static void emu_emitRelativeOpcode(emu_Assembler* assembler, emu_Token const* to
 static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
-static void emu_emitByte(emu_Assembler* assembler, uint8 opcode);
+static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
 static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8* index, size_t indexSize);
 
 static bool isArgStart(emu_Assembler* assembler);
@@ -438,6 +438,16 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 				// Increment 2 bytes to save room for the patched location
 				assembler->writeIndex += 2;
 				stbds_arrput(assembler->patches, patch);
+			}
+			else if (argList->arg0.type == emu_ArgumentType_Word && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
+			{
+				emu_emitAbsoluteXOpcode(assembler, token);
+				emu_emitByte(assembler, argList->arg0.as.word & 0xFF);
+				emu_emitByte(assembler, (argList->arg0.as.word >> 8) & 0xFF);
+			}
+			else
+			{
+				g_logger_error("Unable to handle absolute instruction: '%d'", argList->arg0.type);
 			}
 		}
 		else
