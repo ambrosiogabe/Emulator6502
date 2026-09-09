@@ -89,7 +89,7 @@ typedef struct emu_PatchLocation
 	emu_PatchType type;
 	// The memory we're writing into for this patch
 	uint8* writePtr;
-	// The rom relative address of where this patch is needed
+	// The absolute address in memory of where this patch is needed
 	uint16 romAddress;
 	// The label we need to jump to
 	char* label;
@@ -97,10 +97,19 @@ typedef struct emu_PatchLocation
 	emu_Token const* token;
 } emu_PatchLocation;
 
+typedef struct emu_LabelData
+{
+	// The absolute address of this label in memory
+	uint16 address;
+	// The index of this label which lets us know where it falls in the order of labels
+	// This is used for unnamed labels and relative branching
+	uint16 index;
+} emu_LabelData;
+
 typedef struct emu_Label
 {
 	char* key;
-	uint16 value;
+	emu_LabelData value;
 } emu_Label;
 
 typedef enum emu_StatementError
@@ -146,6 +155,7 @@ static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* t
 static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
 static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
 static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8* index, size_t indexSize);
+static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token);
 
 static bool isArgStart(emu_Assembler* assembler);
 
@@ -211,14 +221,16 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 		{
 			if (patch->type == emu_PatchType_RelativeJump)
 			{
-				uint16 labelAddress = stbds_shget(assembler.labels, patch->label);
+				emu_LabelData label = stbds_shget(assembler.labels, patch->label);
+				uint16 labelAddress = label.address;
 				int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
 				patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
 				patch->writePtr[1] = (uint8)(relativeOffset >> 8);
 			}
 			else if (patch->type == emu_PatchType_GlobalAddress)
 			{
-				uint16 labelAddress = stbds_shget(assembler.labels, patch->label);
+				emu_LabelData label = stbds_shget(assembler.labels, patch->label);
+				uint16 labelAddress = label.address;
 				patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
 				patch->writePtr[1] = (uint8)(labelAddress >> 8);
 			}
@@ -308,14 +320,7 @@ static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* 
 		return emu_StatementError_Invalid;
 	}
 
-	// Record the location of this label
-	char* symbolString = g_memory_allocate(token->length + 1);
-	g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + token->start, token->length);
-	symbolString[token->length] = '\0';
-	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-	stbds_shput(assembler->labels, symbolString, prgAddress + assembler->mmap->as.nes.rom.start);
-
-	return emu_StatementError_None;
+	return emu_addLabel(assembler, token);
 }
 
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token)
@@ -708,14 +713,7 @@ static emu_StatementError emu_parseProc(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	char* addr = g_memory_allocate(addrToken->length + 1);
-	g_memory_copyMem(addr, assembler->tokenList->sourceFile->data + addrToken->start, addrToken->length);
-	addr[addrToken->length] = '\0';
-
-	// Record location of label
-	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-	stbds_shput(assembler->labels, addr, prgAddress + assembler->mmap->as.nes.rom.start);
-	return emu_StatementError_None;
+	return emu_addLabel(assembler, addrToken);
 }
 
 static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler)
@@ -893,6 +891,29 @@ static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8
 	assembler->writeIndex = index;
 	assembler->writeIndexSize = indexSize;
 	assembler->writeIndexStart = indexStart;
+}
+
+static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token)
+{
+	if (token->type != emu_TokenType_Symbol)
+	{
+		emu_logError(assembler, token, "Expected symbol. Instead got '%s'", emu_TokenTypes[token->type]);
+		return emu_StatementError_Invalid;
+	}
+
+	char* label = g_memory_allocate(token->length + 1);
+	g_memory_copyMem(label, assembler->tokenList->sourceFile->data + token->start, token->length);
+	label[token->length] = '\0';
+
+	// Record location of label
+	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
+	uint16 labelIndex = (uint16)(stbds_shlen(assembler->labels));
+	stbds_shput(assembler->labels, label, ((emu_LabelData){
+		.address = prgAddress + assembler->mmap->as.nes.rom.start,
+			.index = labelIndex
+	}));
+
+	return emu_StatementError_None;
 }
 
 static bool isArgStart(emu_Assembler* assembler)
