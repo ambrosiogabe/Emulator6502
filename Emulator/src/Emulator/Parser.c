@@ -79,6 +79,9 @@ const char* emu_TokenTypes[] = {
 	"Character",
 	"Comma",
 	"Plus",
+	"Minus",
+	"RightAngleBracket",
+	"LeftAngleBracket",
 	"Colon",
 	"ImmediateConstant",
 	"ByteConstant",
@@ -300,7 +303,16 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 		return emu_makeToken(emu_TokenType_Colon, start, parser->current, line, column, (emu_TokenData) { 0 });
 	case '+':
 		emu_getChar(parser);
-		return emu_makeToken(emu_TokenType_Colon, start, parser->current, line, column, (emu_TokenData) { 0 });
+		return emu_makeToken(emu_TokenType_Plus, start, parser->current, line, column, (emu_TokenData) { 0 });
+	case '-':
+		emu_getChar(parser);
+		return emu_makeToken(emu_TokenType_Minus, start, parser->current, line, column, (emu_TokenData) { 0 });
+	case '>':
+		emu_getChar(parser);
+		return emu_makeToken(emu_TokenType_RightAngleBracket, start, parser->current, line, column, (emu_TokenData) { 0 });
+	case '<':
+		emu_getChar(parser);
+		return emu_makeToken(emu_TokenType_LeftAngleBracket, start, parser->current, line, column, (emu_TokenData) { 0 });
 	default:
 		if (emu_isSymbolStart(c))
 		{

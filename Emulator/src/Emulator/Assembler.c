@@ -55,6 +55,7 @@ typedef enum emu_ArgumentType
 	emu_ArgumentType_Byte,
 	emu_ArgumentType_Word,
 	emu_ArgumentType_Label,
+	emu_ArgumentType_AnonymousLabel,
 	emu_ArgumentType_X,
 	emu_ArgumentType_Y
 } emu_ArgumentType;
@@ -67,6 +68,7 @@ typedef struct emu_Argument
 	{
 		uint8 byte;
 		uint16 word;
+		int16 anonymousLabelJumpAmount;
 	} as;
 } emu_Argument;
 
@@ -81,6 +83,7 @@ typedef struct emu_ArgList
 typedef enum emu_PatchType
 {
 	emu_PatchType_RelativeJump,
+	emu_PatchType_AnonymousJump,
 	emu_PatchType_GlobalAddress,
 } emu_PatchType;
 
@@ -91,8 +94,12 @@ typedef struct emu_PatchLocation
 	uint8* writePtr;
 	// The absolute address in memory of where this patch is needed
 	uint16 romAddress;
-	// The label we need to jump to
-	char* label;
+	union as
+	{
+		// The label we need to jump to
+		char* label;
+		int16 labelIndexToJumpTo;
+	} as;
 	// Debug info
 	emu_Token const* token;
 } emu_PatchLocation;
@@ -139,6 +146,7 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler);
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* token);
+static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Token const* token);
 static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* token);
 static void freeArgList(emu_ArgList* argList);
 
@@ -157,6 +165,7 @@ static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
 static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8* index, size_t indexSize);
 static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type, bool canBeRelative);
+static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assembler, int16 numberOfLabelsToJump, emu_Token const* debugToken);
 
 static bool isArgStart(emu_Assembler* assembler);
 
@@ -218,28 +227,52 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 	{
 		emu_PatchLocation* patch = assembler.patches + i;
 
-		if (stbds_shgeti(assembler.labels, patch->label) >= 0)
+		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
 		{
-			if (patch->type == emu_PatchType_RelativeJump)
+			if (stbds_shgeti(assembler.labels, patch->as.label) >= 0)
 			{
-				emu_LabelData label = stbds_shget(assembler.labels, patch->label);
+				if (patch->type == emu_PatchType_RelativeJump)
+				{
+					emu_LabelData label = stbds_shget(assembler.labels, patch->as.label);
+					uint16 labelAddress = label.address;
+					int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
+					patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
+					patch->writePtr[1] = (uint8)(relativeOffset >> 8);
+				}
+				else if (patch->type == emu_PatchType_GlobalAddress)
+				{
+					emu_LabelData label = stbds_shget(assembler.labels, patch->as.label);
+					uint16 labelAddress = label.address;
+					patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
+					patch->writePtr[1] = (uint8)(labelAddress >> 8);
+				}
+			}
+			else
+			{
+				emu_Token const* token = patch->token;
+				emu_logError(&assembler, token, "Label not found '%s'.", patch->as.label);
+			}
+		}
+		else if (patch->type == emu_PatchType_AnonymousJump)
+		{
+			if (patch->as.labelIndexToJumpTo >= (int16)stbds_shlen(assembler.labels))
+			{
+				emu_Token const* token = patch->token;
+				emu_logError(&assembler, token, "Anonymous label not found.");
+			}
+			else
+			{
+				emu_LabelData label = (assembler.labels + patch->as.labelIndexToJumpTo)->value;
+				g_logger_assert(label.index == patch->as.labelIndexToJumpTo, "Somehow recorded incorrect label index to jump to.");
 				uint16 labelAddress = label.address;
 				int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
 				patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
 				patch->writePtr[1] = (uint8)(relativeOffset >> 8);
 			}
-			else if (patch->type == emu_PatchType_GlobalAddress)
-			{
-				emu_LabelData label = stbds_shget(assembler.labels, patch->label);
-				uint16 labelAddress = label.address;
-				patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
-				patch->writePtr[1] = (uint8)(labelAddress >> 8);
-			}
 		}
 		else
 		{
-			emu_Token const* token = patch->token;
-			emu_logError(&assembler, token, "Label not found'%s'.", patch->label);
+			g_logger_error("Unable to handle patching this type of label %d", patch->type);
 		}
 	}
 
@@ -248,7 +281,11 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 	for (int i = 0; i < stbds_arrlen(assembler.patches); i++)
 	{
 		emu_PatchLocation* patch = assembler.patches + i;
-		g_memory_free(patch->label);
+		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
+		{
+			g_memory_free(patch->as.label);
+		}
+
 	}
 
 	for (int i = 0; i < stbds_shlen(assembler.labels); i++)
@@ -304,6 +341,8 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 		return assembleInstruction(assembler, token);
 	case emu_TokenType_Symbol:
 		return parseLabel(assembler, token);
+	case emu_TokenType_Colon:
+		return parseAnonymousLabel(assembler, token);
 	case emu_TokenType_String:
 	case emu_TokenType_Comment:
 		return emu_StatementError_None;
@@ -322,6 +361,35 @@ static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* 
 	}
 
 	return emu_addLabel(assembler, token);
+}
+
+static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Token const* token)
+{
+	if (token->type != emu_TokenType_Colon)
+	{
+		emu_logError(assembler, token, "Expected ':'. Instead got '%s'", emu_TokenTypes[token->type]);
+		return emu_StatementError_Invalid;
+	}
+
+	// Create fake name for label. We'll use the size of labels to make sure it's unique
+	char scratch[1'024];
+	int length = snprintf(scratch, sizeof(scratch), "##Anonymous##%d", (int16)stbds_shlen(assembler->labels));
+	g_logger_assert(length < 1'024 - 1, "Could not write buffer");
+	scratch[length] = '\0';
+
+	// Make sure to allocate memory specifically for this label to own
+	char* label = g_memory_allocate(length + 1);
+	g_memory_copyMem(label, scratch, length + 1);
+
+	// Record location of label
+	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
+	uint16 labelIndex = (uint16)(stbds_shlen(assembler->labels));
+	stbds_shput(assembler->labels, label, ((emu_LabelData){
+		.address = prgAddress + assembler->mmap->as.nes.rom.start,
+			.index = labelIndex
+	}));
+
+	return emu_StatementError_None;
 }
 
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token)
@@ -370,14 +438,19 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 	{
 		if (emu_expectRelativeCommand(assembler, token))
 		{
-			if (argList->arg0.type != emu_ArgumentType_Label)
-			{
-				emu_logError(assembler, argList->arg0.token, "Command needs a label to jump to.");
-			}
-			else
+			if (argList->arg0.type == emu_ArgumentType_Label)
 			{
 				emu_emitRelativeOpcode(assembler, token);
 				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_RelativeJump, true);
+			}
+			else if (argList->arg0.type == emu_ArgumentType_AnonymousLabel)
+			{
+				emu_emitRelativeOpcode(assembler, token);
+				emu_recordAnonymousPatchLocation(assembler, argList->arg0.as.anonymousLabelJumpAmount, argList->arg0.token);
+			}
+			else
+			{
+				emu_logError(assembler, argList->arg0.token, "Command needs a label to jump to.");
 			}
 		}
 		else
@@ -452,31 +525,36 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* toke
 	argList->mode = emu_AddressingMode_Implicit;
 	argList->arg0.type = emu_ArgumentType_Byte;
 	argList->arg1.type = emu_ArgumentType_Byte;
+	argList->numArgs = 0;
 
 	if (!isArgStart(assembler))
 	{
 		return argList;
 	}
 
-	// For now, just expect either label/byte/word
 	argList->arg0.token = getNext(assembler);
-	if (argList->arg0.token->type == emu_TokenType_ByteConstant)
+	switch (argList->arg0.token->type)
+	{
+	case emu_TokenType_ByteConstant:
 	{
 		argList->arg0.as.byte = argList->arg0.token->data.byteConstant;
 		argList->mode = emu_AddressingMode_ZeroPage;
 	}
-	else if (argList->arg0.token->type == emu_TokenType_ImmediateConstant)
+	break;
+	case emu_TokenType_ImmediateConstant:
 	{
 		argList->arg0.as.byte = argList->arg0.token->data.byteConstant;
 		argList->mode = emu_AddressingMode_Immediate;
 	}
-	else if (argList->arg0.token->type == emu_TokenType_TwoByteConstant)
+	break;
+	case emu_TokenType_TwoByteConstant:
 	{
 		argList->arg0.as.word = argList->arg0.token->data.twoByteConstant;
 		argList->arg0.type = emu_ArgumentType_Word;
 		argList->mode = emu_AddressingMode_Absolute;
 	}
-	else if (argList->arg0.token->type == emu_TokenType_Symbol)
+	break;
+	case emu_TokenType_Symbol:
 	{
 		// Handle jumping to a symbol
 		if (emu_expectRelativeCommandWithError(assembler, token, false))
@@ -495,9 +573,45 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* toke
 			g_logger_error("Unexpected symbol after instruction '%s'. Not sure what to do here.", emu_Keywords[token->data.keyword]);
 		}
 	}
-	else
+	break;
+	case emu_TokenType_Colon:
 	{
+		// Parse the indicators telling us which relative label to jump to. You could use an indicator like the following:
+		//   :+ ; Jump one label forward
+		//   :- ; Jump one label back
+		//   :< ; Jump one label back
+		//   :> ; Jump one label forward
+		// And you can stack any of those indicators to indicate a jump of more than one label like:
+		//   :++ ; Jump two labels ahead
+		emu_Token const* indicator = getNext(assembler);
+		int16 numberOfLabelsToJump = 1;
+		while (peek(assembler) == indicator->type)
+		{
+			getNext(assembler);
+			numberOfLabelsToJump++;
+		}
+
+		if (indicator->type == emu_TokenType_LeftAngleBracket || indicator->type == emu_TokenType_Minus)
+		{
+			numberOfLabelsToJump *= -1;
+			// If we go backwards we need to add one to the number of labels to jump. That's because technically
+			// the first label behind us would be the last label index we've seen. In other words, we want to jump
+			// (currentLabelIndex + 0) instead of going -1.
+			numberOfLabelsToJump++;
+		}
+
+		// Handle jumping to a symbol
+		if (emu_expectRelativeCommandWithError(assembler, token, true))
+		{
+			argList->mode = emu_AddressingMode_Relative;
+			argList->arg0.type = emu_ArgumentType_AnonymousLabel;
+			argList->arg0.as.anonymousLabelJumpAmount = numberOfLabelsToJump;
+		}
+	}
+	break;
+	default:
 		g_logger_error("Unexpected token type: %s", emu_TokenTypes[argList->arg0.token->type]);
+		break;
 	}
 
 	// If we don't see a comma, then this instruction only has a single argument
@@ -513,17 +627,21 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* toke
 	// For now, just expect either label/byte/word
 
 	argList->arg1.token = getNext(assembler);
-	if (argList->arg1.token->type == emu_TokenType_ByteConstant)
+	switch (argList->arg1.token->type)
+	{
+	case emu_TokenType_ByteConstant:
 	{
 		argList->arg1.as.byte = argList->arg1.token->data.byteConstant;
 	}
-	else if (argList->arg1.token->type == emu_TokenType_TwoByteConstant)
+	break;
+	case emu_TokenType_TwoByteConstant:
 	{
 		argList->arg1.as.word = argList->arg1.token->data.twoByteConstant;
 		argList->arg1.type = emu_ArgumentType_Word;
 		argList->mode = emu_AddressingMode_Absolute;
 	}
-	else if (argList->arg1.token->type == emu_TokenType_Symbol)
+	break;
+	case emu_TokenType_Symbol:
 	{
 		emu_file* file = assembler->tokenList->sourceFile;
 		char symbolFirstChar = file->data[argList->arg1.token->start];
@@ -540,9 +658,10 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* toke
 			argList->arg1.type = emu_ArgumentType_Label;
 		}
 	}
-	else
-	{
+	break;
+	default:
 		g_logger_error("Unexpected token type: %s", emu_TokenTypes[argList->arg1.token->type]);
+		break;
 	}
 
 	argList->numArgs = 2;
@@ -858,9 +977,9 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 
 static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type, bool canBeRelative)
 {
-	if (token->type != emu_TokenType_Symbol && token->type != emu_TokenType_Colon)// && token->type != emu_TokenType_Minus)
+	if (token->type != emu_TokenType_Symbol)
 	{
-		emu_logError(assembler, token, "Expected symbol or a colon followed by a series of one of: '+', '-', '>', or '<'. Instead got '%s'", emu_TokenTypes[token->type]);
+		emu_logError(assembler, token, "Expected symbol. Instead got '%s'", emu_TokenTypes[token->type]);
 		return emu_StatementError_Invalid;
 	}
 
@@ -870,7 +989,9 @@ static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_
 
 	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 	emu_PatchLocation patch = {
-		.label = label,
+		.as = {
+			.label = label,
+		},
 		.writePtr = assembler->writeIndex,
 		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 		.token = token,
@@ -884,11 +1005,48 @@ static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_
 	return emu_StatementError_None;
 }
 
+static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assembler, int16 numberOfLabelsToJump, emu_Token const* debugToken)
+{
+	if (debugToken->type != emu_TokenType_Colon)
+	{
+		emu_logError(assembler, debugToken, "Expected a colon followed by a series of one of: '+', '-', '>', or '<'. Instead got '%s'", emu_TokenTypes[debugToken->type]);
+		return emu_StatementError_Invalid;
+	}
+
+	int16 currentLabelIndex = (int16)(stbds_shlen(assembler->labels) - 1);
+	int16 labelIndexToJumpTo = currentLabelIndex + numberOfLabelsToJump;
+	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
+	emu_PatchLocation patch = {
+		.as = {
+			.labelIndexToJumpTo = labelIndexToJumpTo,
+		},
+		.writePtr = assembler->writeIndex,
+		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
+		.token = debugToken,
+		.type = emu_PatchType_AnonymousJump,
+	};
+
+	// Increment 2 bytes to save room for the patched location
+	assembler->writeIndex += 2;
+	stbds_arrput(assembler->patches, patch);
+
+	return emu_StatementError_None;
+}
+
 static bool isArgStart(emu_Assembler* assembler)
 {
 	emu_TokenType type = peek(assembler);
 	emu_TokenType nextType = peekMulti(assembler, 1);
-	return type == emu_TokenType_ByteConstant || type == emu_TokenType_ImmediateConstant || type == emu_TokenType_TwoByteConstant || (type == emu_TokenType_Symbol && nextType != emu_TokenType_Symbol);
+	return type == emu_TokenType_ByteConstant
+		|| type == emu_TokenType_ImmediateConstant
+		|| type == emu_TokenType_TwoByteConstant
+		|| (type == emu_TokenType_Symbol && nextType != emu_TokenType_Symbol)
+		|| (type == emu_TokenType_Colon &&
+			(nextType == emu_TokenType_Plus
+				|| nextType == emu_TokenType_Minus
+				|| nextType == emu_TokenType_LeftAngleBracket
+				|| nextType == emu_TokenType_RightAngleBracket)
+			);
 }
 
 static bool emu_expect(emu_Assembler* assembler, emu_TokenType expected)
