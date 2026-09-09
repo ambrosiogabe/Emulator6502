@@ -156,6 +156,7 @@ static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
 static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
 static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8* index, size_t indexSize);
 static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token);
+static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type, bool canBeRelative);
 
 static bool isArgStart(emu_Assembler* assembler);
 
@@ -376,22 +377,7 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			else
 			{
 				emu_emitRelativeOpcode(assembler, token);
-				// Record the location of this patch
-				emu_Token const* patchToken = argList->arg0.token;
-				char* symbolString = g_memory_allocate(patchToken->length + 1);
-				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
-				symbolString[patchToken->length] = '\0';
-				uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-				emu_PatchLocation patch = {
-					.label = symbolString,
-					.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
-					.token = patchToken,
-					.type = emu_PatchType_RelativeJump,
-					.writePtr = assembler->writeIndex,
-				};
-				// Increment 2 bytes to save room for the patched location
-				assembler->writeIndex += 2;
-				stbds_arrput(assembler->patches, patch);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_RelativeJump, true);
 			}
 		}
 		else
@@ -407,42 +393,12 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			if (argList->arg0.type == emu_ArgumentType_Label && argList->numArgs == 1)
 			{
 				emu_emitAbsoluteOpcode(assembler, token);
-				// Record the location of this patch
-				emu_Token const* patchToken = argList->arg0.token;
-				char* symbolString = g_memory_allocate(patchToken->length + 1);
-				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
-				symbolString[patchToken->length] = '\0';
-				uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-				emu_PatchLocation patch = {
-					.label = symbolString,
-					.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
-					.token = patchToken,
-					.type = emu_PatchType_GlobalAddress,
-					.writePtr = assembler->writeIndex,
-				};
-				// Increment 2 bytes to save room for the patched location
-				assembler->writeIndex += 2;
-				stbds_arrput(assembler->patches, patch);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, true);
 			}
 			else if (argList->arg0.type == emu_ArgumentType_Label && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
 			{
 				emu_emitAbsoluteXOpcode(assembler, token);
-				// Record the location of this patch
-				emu_Token const* patchToken = argList->arg0.token;
-				char* symbolString = g_memory_allocate(patchToken->length + 1);
-				g_memory_copyMem(symbolString, assembler->tokenList->sourceFile->data + patchToken->start, patchToken->length);
-				symbolString[patchToken->length] = '\0';
-				uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-				emu_PatchLocation patch = {
-					.label = symbolString,
-					.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
-					.token = patchToken,
-					.type = emu_PatchType_GlobalAddress,
-					.writePtr = assembler->writeIndex,
-				};
-				// Increment 2 bytes to save room for the patched location
-				assembler->writeIndex += 2;
-				stbds_arrput(assembler->patches, patch);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, true);
 			}
 			else if (argList->arg0.type == emu_ArgumentType_Word && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
 			{
@@ -685,23 +641,7 @@ static emu_StatementError emu_parseControlAddr(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	char* addr = g_memory_allocate(addrToken->length + 1);
-	g_memory_copyMem(addr, assembler->tokenList->sourceFile->data + addrToken->start, addrToken->length);
-	addr[addrToken->length] = '\0';
-
-	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-	emu_PatchLocation patch = {
-	.label = addr,
-	.writePtr = assembler->writeIndex,
-	.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
-	.token = addrToken,
-	.type = emu_PatchType_GlobalAddress,
-	};
-	// Increment 2 bytes to save room for the patched location
-	assembler->writeIndex += 2;
-	stbds_arrput(assembler->patches, patch);
-
-	return emu_StatementError_None;
+	return emu_recordPatchLocation(assembler, addrToken, emu_PatchType_GlobalAddress, false);
 }
 
 static emu_StatementError emu_parseProc(emu_Assembler* assembler)
@@ -912,6 +852,34 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 		.address = prgAddress + assembler->mmap->as.nes.rom.start,
 			.index = labelIndex
 	}));
+
+	return emu_StatementError_None;
+}
+
+static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type, bool canBeRelative)
+{
+	if (token->type != emu_TokenType_Symbol && token->type != emu_TokenType_Colon)// && token->type != emu_TokenType_Minus)
+	{
+		emu_logError(assembler, token, "Expected symbol or a colon followed by a series of one of: '+', '-', '>', or '<'. Instead got '%s'", emu_TokenTypes[token->type]);
+		return emu_StatementError_Invalid;
+	}
+
+	char* label = g_memory_allocate(token->length + 1);
+	g_memory_copyMem(label, assembler->tokenList->sourceFile->data + token->start, token->length);
+	label[token->length] = '\0';
+
+	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
+	emu_PatchLocation patch = {
+		.label = label,
+		.writePtr = assembler->writeIndex,
+		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
+		.token = token,
+		.type = type,
+	};
+
+	// Increment 2 bytes to save room for the patched location
+	assembler->writeIndex += 2;
+	stbds_arrput(assembler->patches, patch);
 
 	return emu_StatementError_None;
 }
