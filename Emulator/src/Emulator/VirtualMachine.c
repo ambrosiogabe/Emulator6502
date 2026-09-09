@@ -427,7 +427,7 @@ const char* emu_vm_instructionToString(emu_vmInstruction instruction)
 
 uint8 emu_vm_getStatus(emu_virtualMachine* vm, emu_vmStatus status)
 {
-	return (vm->statusReg & status) & 0xFF;
+	return (uint8)(vm->statusReg & status) / (uint8)status;
 }
 
 void emu_vm_setStatus(emu_virtualMachine* vm, emu_vmStatus status)
@@ -730,8 +730,8 @@ static void compare(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
 	}
 
-	setRegisterValue(vm, instruction, registerValue - value);
-	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, getRegisterValue(vm, instruction));
+	int8 res = (int8)registerValue - (int8)value;
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, res);
 }
 
 static void decrement(emu_virtualMachine* vm, emu_vmInstruction _, uint8 address)
