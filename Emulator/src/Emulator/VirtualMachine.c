@@ -65,6 +65,24 @@ case caseName:\
 }\
 break
 
+#define BRANCH_ON_STATUS_SET_BASE(caseName, status, op) \
+case caseName:\
+{\
+  uint8 address0 = getNext(vm);\
+  uint8 address1 = getNext(vm);\
+\
+  if (op emu_vm_getStatus(vm, emu_vmStatus_##status))\
+  {\
+	  int16 relativeAddress = ((uint16)address1 << 8) | address0;\
+	  /* We need to subtract the 2 bytes that our program counter has already incremented */\
+	  vm->programCounter += (relativeAddress - 2);\
+  }\
+}\
+break
+
+#define BRANCH_ON_STATUS_SET(caseName, status) BRANCH_ON_STATUS_SET_BASE(caseName, status, !!)
+#define BRANCH_ON_NOT_STATUS_SET(caseName, status) BRANCH_ON_STATUS_SET_BASE(caseName, status, !)
+
 const char* emu_vmInstructions[EMU_MAX_INSTRUCTION_OPCODE] = { 0 };
 
 void emu_vm_initDebug()
@@ -504,6 +522,15 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION(emu_vmInstruction_LSR_ZP, logicalShiftRight);
 		// Rotate Right
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ROR_ZP, rotateRight);
+		// Comparison instructions
+		BRANCH_ON_STATUS_SET(emu_vmInstruction_BMI_REL, Negative);
+		BRANCH_ON_STATUS_SET(emu_vmInstruction_BVS_REL, Overflow);
+		BRANCH_ON_STATUS_SET(emu_vmInstruction_BCS_REL, Carry);
+		BRANCH_ON_STATUS_SET(emu_vmInstruction_BEQ_REL, Zero);
+		BRANCH_ON_NOT_STATUS_SET(emu_vmInstruction_BPL_REL, Negative);
+		BRANCH_ON_NOT_STATUS_SET(emu_vmInstruction_BVC_REL, Overflow);
+		BRANCH_ON_NOT_STATUS_SET(emu_vmInstruction_BCC_REL, Carry);
+		BRANCH_ON_NOT_STATUS_SET(emu_vmInstruction_BNE_REL, Zero);
 	case emu_vmInstruction_ROR_IMP:
 		rotateRight(vm, instruction, UINT8_MAX);
 		break;
@@ -532,48 +559,6 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		vm->yReg++;
 		checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->yReg);
 		break;
-	case emu_vmInstruction_BCC_REL:
-	{
-		uint8 address0 = getNext(vm);
-		uint8 address1 = getNext(vm);
-
-		// If carry flag is set, jump
-		if (emu_vm_getStatus(vm, emu_vmStatus_Carry))
-		{
-			int16 relativeAddress = ((uint16)address1 << 8) | address0;
-			// We need to subtract the 2 bytes that our program counter has already incremented
-			vm->programCounter += (relativeAddress - 2);
-		}
-	}
-	break;
-	case emu_vmInstruction_BPL_REL:
-	{
-		uint8 address0 = getNext(vm);
-		uint8 address1 = getNext(vm);
-
-		// If negative flag is not set (it's postivie number) jump
-		if (!emu_vm_getStatus(vm, emu_vmStatus_Negative))
-		{
-			int16 relativeAddress = ((uint16)address1 << 8) | address0;
-			// We need to subtract the 2 bytes that our program counter has already incremented
-			vm->programCounter += (relativeAddress - 2);
-		}
-	}
-	break;
-	case emu_vmInstruction_BNE_REL:
-	{
-		uint8 address0 = getNext(vm);
-		uint8 address1 = getNext(vm);
-
-		// If zero flag is not set (numbers are not equal) jump
-		if (!emu_vm_getStatus(vm, emu_vmStatus_Zero))
-		{
-			int16 relativeAddress = ((uint16)address1 << 8) | address0;
-			// We need to subtract the 2 bytes that our program counter has already incremented
-			vm->programCounter += (relativeAddress - 2);
-		}
-	}
-	break;
 	case emu_vmInstruction_JSR_ABS:
 	{
 		uint8 address0 = getNext(vm);
