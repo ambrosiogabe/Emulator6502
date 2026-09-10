@@ -18,6 +18,7 @@ typedef struct emu_NesMemoryMap
 	// ROM Vector, for Hardware Vectors
 	emu_AddressRange romv;
 	emu_AddressRange header;
+	emu_AddressRange stack;
 } emu_NesMemoryMap;
 
 typedef struct emu_CommodoreMemoryMap

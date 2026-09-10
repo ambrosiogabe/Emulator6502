@@ -9,6 +9,7 @@ emu_MemoryMap emu_mmap_newNesMap(size_t physicalMemorySize)
 	emu_AddressRange rom = { .start = 0x8000, .end = 0xfff9 };
 	emu_AddressRange romv = { .start = 0xfffa, .end = 0xffff };
 	emu_AddressRange header = { .start = 0x0, .end = 0xf };
+	emu_AddressRange stack = { .start = 0x0100, .end = 0x1ff };
 
 	emu_MemoryMap res = {
 		.physicalMemory = physicalMemory,
@@ -18,6 +19,7 @@ emu_MemoryMap emu_mmap_newNesMap(size_t physicalMemorySize)
 			.rom = rom,
 			.romv = romv,
 			.header = header,
+			.stack = stack,
 },
 	};
 

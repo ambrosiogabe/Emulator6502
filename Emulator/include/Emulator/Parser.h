@@ -46,6 +46,7 @@ typedef enum emu_Keyword
 	emu_Keyword_BEQ,
 	emu_Keyword_SEC,
 	emu_Keyword_CLC,
+	emu_Keyword_JSR,
 
 	// Logical/Arithmetic commands
 	emu_Keyword_ORA,

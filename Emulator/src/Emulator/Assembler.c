@@ -8,6 +8,7 @@
 #include <stb/stb_ds.h>
 #include <stdio.h>
 #include <stdarg.h>
+#include <ctype.h>
 
 #define EMIT_IMPLICIT_OPCODE(type) \
 case emu_Keyword_##type:\
@@ -161,6 +162,7 @@ static void emu_emitRelativeOpcode(emu_Assembler* assembler, emu_Token const* to
 static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
+static void emu_emitWord(emu_Assembler* assembler, uint16 word);
 static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
 static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8* index, size_t indexSize);
 static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token);
@@ -348,6 +350,8 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 		return emu_StatementError_None;
 	case emu_TokenType_ControlCommand:
 		return assembleControlCommand(assembler, token);
+	default:
+		g_logger_error("No support for token type: '%s'", emu_TokenTypes[token->type]);
 	}
 
 	return emu_StatementError_Invalid;
@@ -468,6 +472,11 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 				emu_emitAbsoluteOpcode(assembler, token);
 				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, true);
 			}
+			else if (argList->arg0.type == emu_ArgumentType_Word && argList->numArgs == 1)
+			{
+				emu_emitAbsoluteOpcode(assembler, token);
+				emu_emitWord(assembler, argList->arg0.as.word);
+			}
 			else if (argList->arg0.type == emu_ArgumentType_Label && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
 			{
 				emu_emitAbsoluteXOpcode(assembler, token);
@@ -476,8 +485,7 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			else if (argList->arg0.type == emu_ArgumentType_Word && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
 			{
 				emu_emitAbsoluteXOpcode(assembler, token);
-				emu_emitByte(assembler, argList->arg0.as.word & 0xFF);
-				emu_emitByte(assembler, (argList->arg0.as.word >> 8) & 0xFF);
+				emu_emitWord(assembler, argList->arg0.as.word);
 			}
 			else
 			{
@@ -503,7 +511,11 @@ static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_T
 		// TODO: Properly support this
 		emu_expect(assembler, emu_TokenType_Symbol);
 		return emu_StatementError_None;
+	case emu_ControlCommand_EndProc:
+		// TODO: Properly support this
+		return emu_StatementError_None;
 	case emu_ControlCommand_Proc:
+		// TODO: Properly support this
 		return emu_parseProc(assembler);
 	case emu_ControlCommand_Segment:
 		return emu_parseAndSetSegment(assembler);
@@ -511,6 +523,8 @@ static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_T
 		return emu_parseAndEmitByteList(assembler);
 	case emu_ControlCommand_Addr:
 		return emu_parseControlAddr(assembler);
+	default:
+		g_logger_error("No support for control command: '%s'", emu_ControlCommands[token->data.controlCommand]);
 	}
 
 	return emu_StatementError_Invalid;
@@ -645,11 +659,11 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* toke
 	{
 		emu_file* file = assembler->tokenList->sourceFile;
 		char symbolFirstChar = file->data[argList->arg1.token->start];
-		if (symbolFirstChar == 'x' && argList->arg1.token->length == 1)
+		if (toupper(symbolFirstChar) == 'X' && argList->arg1.token->length == 1)
 		{
 			argList->arg1.type = emu_ArgumentType_X;
 		}
-		else if (symbolFirstChar == 'y' && argList->arg1.token->length == 1)
+		else if (toupper(symbolFirstChar) == 'Y' && argList->arg1.token->length == 1)
 		{
 			argList->arg1.type = emu_ArgumentType_Y;
 		}
@@ -815,6 +829,8 @@ static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_IMPLICIT_OPCODE(RTS);
 		EMIT_IMPLICIT_OPCODE(SEC);
 		EMIT_IMPLICIT_OPCODE(CLC);
+	default:
+		g_logger_error("Cannot emit implicit opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
 }
 
@@ -833,6 +849,8 @@ static void emu_emitImmediateOpcode(emu_Assembler* assembler, emu_Token const* t
 		EMIT_IMMEDIATE_OPCODE(LDA);
 		EMIT_IMMEDIATE_OPCODE(LDX);
 		EMIT_IMMEDIATE_OPCODE(LDY);
+	default:
+		g_logger_error("Cannot emit immediate opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
 }
 
@@ -860,6 +878,8 @@ static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_ZERO_PAGE_OPCODE(STX);
 		EMIT_ZERO_PAGE_OPCODE(LDY);
 		EMIT_ZERO_PAGE_OPCODE(STY);
+	default:
+		g_logger_error("Cannot emit zero page opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
 }
 
@@ -875,6 +895,8 @@ static void emu_emitRelativeOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_RELATIVE_OPCODE(BCS);
 		EMIT_RELATIVE_OPCODE(BNE);
 		EMIT_RELATIVE_OPCODE(BEQ);
+	default:
+		g_logger_error("Cannot emit relative opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
 }
 
@@ -902,6 +924,9 @@ static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_ABSOLUTE_OPCODE(LDY);
 		EMIT_ABSOLUTE_OPCODE(STY);
 		EMIT_ABSOLUTE_OPCODE(STX);
+		EMIT_ABSOLUTE_OPCODE(JSR);
+	default:
+		g_logger_error("Cannot emit absolute opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
 }
 
@@ -924,12 +949,20 @@ static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* t
 		EMIT_ABSOLUTE_X_OPCODE(LDA);
 		EMIT_ABSOLUTE_X_OPCODE(STA);
 		EMIT_ABSOLUTE_X_OPCODE(LDY);
+	default:
+		g_logger_error("Cannot emit absoluteX opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
 }
 
 static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode)
 {
 	emu_emitByte(assembler, opcode);
+}
+
+static void emu_emitWord(emu_Assembler* assembler, uint16 word)
+{
+	emu_emitByte(assembler, word & 0xFF);
+	emu_emitByte(assembler, (word >> 8) & 0xFF);
 }
 
 static void emu_emitByte(emu_Assembler* assembler, uint8 opcode)
@@ -1227,6 +1260,7 @@ static bool emu_expectAbsoluteCommandWithError(emu_Assembler* assembler, emu_Tok
 	case emu_Keyword_STX:
 	case emu_Keyword_LDY:
 	case emu_Keyword_STY:
+	case emu_Keyword_JSR:
 		return true;
 	}
 

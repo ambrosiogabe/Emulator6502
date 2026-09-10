@@ -15,6 +15,9 @@ typedef struct VmInstruction
 static emu_vmInstruction fetchInstruction(emu_virtualMachine* vm);
 static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static uint8 getNext(emu_virtualMachine* vm);
+static void pushToStack(emu_virtualMachine* vm, uint8 byte);
+static uint8 popFromStack(emu_virtualMachine* vm);
+
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
 static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress);
@@ -75,6 +78,7 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_CLC_IMP] = "CLC_IMP";
 	emu_vmInstructions[emu_vmInstruction_SEC_IMP] = "SEC_IMP";
 	emu_vmInstructions[emu_vmInstruction_RTS_IMP] = "RTS_IMP";
+	emu_vmInstructions[emu_vmInstruction_JSR_ABS] = "JSR_ABS";
 	// -- OR instructions --
 	emu_vmInstructions[emu_vmInstruction_ORA_IMM] = "ORA_IMM";
 	emu_vmInstructions[emu_vmInstruction_ORA_ZP] = "ORA_ZP";
@@ -378,7 +382,7 @@ emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm)
 	vm->accumulatorReg = 0;
 	vm->xReg = 0;
 	vm->yReg = 0;
-	vm->stackPointer = 0;
+	vm->stackPointer = 0xFF;
 	vm->statusReg = 0;
 
 	// NOTE: We don't do anything with ROM here because on reset, only ram should be cleared.
@@ -465,6 +469,7 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_LDA_ABX, setAbsRegisterValue);
 		// Store absolute
 		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STA_ABX, storeAbsRamValue);
+		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STA_ABS, storeAbsRamValue);
 		// Add with carry
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ADC_ZP, addWithCarry);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ADC_IMM, addWithCarry);
@@ -569,6 +574,32 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		}
 	}
 	break;
+	case emu_vmInstruction_JSR_ABS:
+	{
+		uint8 address0 = getNext(vm);
+		uint8 address1 = getNext(vm);
+
+		uint16 globalAddress = ((uint16)address1 << 8) | address0;
+
+		// Store current program counter to our stack
+		uint8 programCounter0 = vm->programCounter & 0xFF;
+		uint8 programCounter1 = (vm->programCounter >> 8) & 0xFF;
+		pushToStack(vm, programCounter0);
+		pushToStack(vm, programCounter1);
+
+		vm->programCounter = globalAddress;
+	}
+	break;
+	case emu_vmInstruction_RTS_IMP:
+	{
+		// Get saved address from stack
+		uint8 address1 = popFromStack(vm);
+		uint8 address0 = popFromStack(vm);
+
+		uint16 globalAddress = ((uint16)address1 << 8) | address0;
+		vm->programCounter = globalAddress;
+	}
+	break;
 
 	// Special
 	case emu_vmInstruction_CLC_IMP:
@@ -576,9 +607,6 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		break;
 	case emu_vmInstruction_SEC_IMP:
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
-		break;
-	case emu_vmInstruction_RTS_IMP:
-		g_logger_warning("Add proper support for RTS");
 		break;
 	default:
 		g_logger_error("Cannot execute instruction: '%s'", emu_vmInstructions[instruction]);
@@ -596,6 +624,32 @@ static uint8 getNext(emu_virtualMachine* vm)
 
 	vm->programCounter++;
 	return nextInstruction;
+}
+
+static void pushToStack(emu_virtualMachine* vm, uint8 byte)
+{
+	if (vm->stackPointer == 0)
+	{
+		g_logger_error("Stack overflow.");
+	}
+
+	uint8* stack = vm->mmap.physicalMemory + vm->mmap.as.nes.stack.start;
+	stack[vm->stackPointer] = byte;
+	vm->stackPointer--;
+}
+
+static uint8 popFromStack(emu_virtualMachine* vm)
+{
+	if (vm->stackPointer == 0xff)
+	{
+		g_logger_error("Stack underflow.");
+		return 0;
+	}
+
+	uint8* stack = vm->mmap.physicalMemory + vm->mmap.as.nes.stack.start;
+	uint8 res = stack[vm->stackPointer + 1];
+	vm->stackPointer++;
+	return res;
 }
 
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction)
@@ -673,6 +727,9 @@ static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 	{
 	case emu_vmInstruction_STA_ABX:
 		baseAddress[vm->xReg] = vm->accumulatorReg;
+		break;
+	case emu_vmInstruction_STA_ABS:
+		baseAddress[0] = vm->accumulatorReg;
 		break;
 	default:
 		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);

@@ -44,6 +44,7 @@ const char* emu_Keywords[] = {
 	"beq",
 	"sec",
 	"clc",
+	"jsr",
 
 	// Logical/Arithmetic commands
 	"ora",

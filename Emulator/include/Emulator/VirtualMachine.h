@@ -45,6 +45,7 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_CLC_IMP = 0x18,
 	emu_vmInstruction_SEC_IMP = 0x38,
 	emu_vmInstruction_RTS_IMP = 0x60,
+	emu_vmInstruction_JSR_ABS = 0x20,
 	// -- OR instructions --
 	emu_vmInstruction_ORA_IMM = 0x09,
 	emu_vmInstruction_ORA_ZP = 0x05,
