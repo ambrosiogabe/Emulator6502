@@ -1,3 +1,9 @@
 [submodule "Emulator/vendor/CppUtils"]
 	path = Emulator/vendor/CppUtils
 	url = https://github.com/ambrosiogabe/CppUtils
+[submodule "Emulator/vendor/nuklear"]
+	path = Emulator/vendor/nuklear
+	url = https://github.com/Immediate-Mode-UI/Nuklear
+[submodule "Emulator/vendor/sdl"]
+	path = Emulator/vendor/sdl
+	url = https://github.com/libsdl-org/SDL

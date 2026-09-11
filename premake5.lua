@@ -12,6 +12,13 @@ workspace "Emulator6502"
 -- This is a helper variable, to concatenate the sys-arch
 outputdir = "%{cfg.buildcfg}-%{cfg.system}-%{cfg.architecture}"
 
+externalproject "SDL3-static"
+    location "Emulator/vendor/sdl/Build/"
+    uuid "B54DE593-B77B-3E9C-B20A-8B7EA6A88814"
+    kind "StaticLib"
+    language "C"
+    cdialect "C11"
+
 project "Emulator6502"
     kind "ConsoleApp"
     language "C"
@@ -21,59 +28,53 @@ project "Emulator6502"
     warnings "Extra" 
     buildoptions { "-WX", "/wd4100" }
 
+    links {
+        "SDL3-static",
+        "winmm",
+        "version",
+        "imm32"
+    }
+
+    dependson {
+        "SDL3-static",
+    }
+
     targetdir("bin/" .. outputdir .. "/%{prj.name}")
     objdir("bin-int/" .. outputdir .. "/%{prj.name}")
     
     files {
         "Emulator/src/**.c",
         "Emulator/include/**.h"
-        -- "Animations/vendor/GLFW/include/GLFW/glfw3.h",
-        -- "Animations/vendor/GLFW/include/GLFW/glfw3native.h",
-        -- "Animations/vendor/GLFW/src/glfw_config.h",
-        -- "Animations/vendor/GLFW/src/context.c",
-        -- "Animations/vendor/GLFW/src/init.c",
-        -- "Animations/vendor/GLFW/src/input.c",
-        -- "Animations/vendor/GLFW/src/monitor.c",
-        -- "Animations/vendor/GLFW/src/vulkan.c",
-        -- "Animations/vendor/GLFW/src/window.c",
-        -- "Animations/vendor/glad/include/glad/glad.h",
-        -- "Animations/vendor/glad/include/glad/KHR/khrplatform.h",
-		-- "Animations/vendor/glad/src/glad.c"
-		-- "Animations/vendor/glad/src/glad.c"
     }
 
     includedirs {
         "Emulator/include",
-        "Emulator/vendor/CppUtils/single_include"
+        "Emulator/vendor/CppUtils/single_include",
+        -- SDL
+        "Emulator/vendor/sdl/include",
+        -- Nuklear
+        "Emulator/vendor/nuklear/"
+    }
+
+    prelinkcommands {
+        "copy /y \"Emulator\\vendor\\sdl\\Build\\%{cfg.buildcfg}\\Sdl3-static.lib\" \"%{cfg.targetdir}\\freetype.dll\"",
+
     }
 
     filter "system:windows"
-        -- buildoptions { "-lgdi32" }
         systemversion "latest"
-
-       -- files {
-       --     -- "Animations/vendor/GLFW/src/win32_init.c",
-       --     -- "Animations/vendor/GLFW/src/win32_joystick.c",
-       --     -- "Animations/vendor/GLFW/src/win32_monitor.c",
-       --     -- "Animations/vendor/GLFW/src/win32_time.c",
-       --     -- "Animations/vendor/GLFW/src/win32_thread.c",
-       --     -- "Animations/vendor/GLFW/src/win32_window.c",
-       --     -- "Animations/vendor/GLFW/src/wgl_context.c",
-       --     -- "Animations/vendor/GLFW/src/egl_context.c",
-       --     -- "Animations/vendor/GLFW/src/osmesa_context.c",
-       -- }
 
         defines  {
             "_CRT_SECURE_NO_WARNINGS"
         }
 
     filter { "configurations:Debug" }
-        buildoptions "/MTd"
+        buildoptions "/MDd"
         runtime "Debug"
         symbols "on"
 
     filter { "configurations:Release" }
-        buildoptions "/MT"
+        buildoptions "/MD"
         runtime "Release"
         optimize "on"
 
@@ -118,12 +119,12 @@ project "Emulator6502_Tests"
         }
 
     filter { "configurations:Debug" }
-        buildoptions "/MTd"
+        buildoptions "/MDd"
         runtime "Debug"
         symbols "on"
 
     filter { "configurations:Release" }
-        buildoptions "/MT"
+        buildoptions "/MD"
         runtime "Release"
         optimize "on"
 

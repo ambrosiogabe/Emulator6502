@@ -4,6 +4,17 @@ IF "%~1" == "" GOTO PrintHelp
 IF "%~1" == "help" GOTO PrintHelp
 IF "%~1" == "h" GOTO PrintHelp
 
+REM Build vendor projects that use cmake
+if not exist Emulator\vendor\sdl\Build (
+    mkdir Emulator\vendor\sdl\Build
+    pushd Emulator\vendor\sdl\Build
+    cmake -S .. -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON
+    popd
+)
+
+pushd vendor/sdl
+
+
 REM Build the project files
 vendor\premake5.exe %1
 GOTO Done
