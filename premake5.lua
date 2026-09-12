@@ -19,6 +19,32 @@ externalproject "SDL3-static"
     language "C"
     cdialect "C11"
 
+    -- Explicitly pass the C11 flag to MSVC because premake is stupid
+    filter "toolset:msc*"
+        buildoptions { "/std:c11" }    
+
+project "tree-sitter"
+    kind "StaticLib"
+    language "C"
+    cdialect "C11"
+    staticruntime "on"
+
+    targetdir("bin/" .. outputdir .. "/%{prj.name}")
+    objdir("bin-int/" .. outputdir .. "/%{prj.name}")
+
+    -- Explicitly pass the C11 flag to MSVC because premake is stupid
+    filter "toolset:msc*"
+        buildoptions { "/std:c11" }    
+
+    files {
+        "Emulator/vendor/tree-sitter/lib/src/lib.c"
+    }
+
+    includedirs {
+        "Emulator/vendor/tree-sitter/lib/src",
+        "Emulator/vendor/tree-sitter/lib/include"
+    }    
+
 project "Emulator6502"
     kind "ConsoleApp"
     language "C"
@@ -28,8 +54,13 @@ project "Emulator6502"
     warnings "Extra" 
     buildoptions { "-WX", "/wd4100" }
 
+    -- Explicitly pass the C11 flag to MSVC because premake is stupid
+    filter "toolset:msc*"
+        buildoptions { "/std:c11" }        
+
     links {
         "SDL3-static",
+        "tree-sitter",
         "winmm",
         "version",
         "imm32"
@@ -87,6 +118,10 @@ project "Emulator6502_Tests"
     language "C"
     cdialect "C11"
     staticruntime "on"
+
+    -- Explicitly pass the C11 flag to MSVC because premake is stupid
+    filter "toolset:msc*"
+        buildoptions { "/std:c11" }        
 
     warnings "Extra" 
     buildoptions { "-WX", "/wd4100", "/wd4028" }

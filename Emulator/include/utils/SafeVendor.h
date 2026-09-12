@@ -6,6 +6,7 @@
 #pragma warning(pop)
 
 #pragma warning(push, 0)
+#pragma warning(disable: 4701)
 #define NK_INCLUDE_FONT_BAKING
 #define NK_INCLUDE_DEFAULT_FONT
 #define NK_INCLUDE_COMMAND_USERDATA
