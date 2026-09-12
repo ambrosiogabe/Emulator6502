@@ -14,7 +14,8 @@ typedef struct emu_nuklear_layer
 
 emu_nuklear_layer* emu_nuklear_init(emu_sdl_wrapper* sdl);
 SDL_AppResult emu_nuklear_handleEvent(emu_nuklear_layer* layer, emu_sdl_wrapper* sdl, SDL_Event* event);
-SDL_AppResult emu_nuklear_tick(emu_nuklear_layer* layer, emu_sdl_wrapper* sdl);
+void emu_nuklear_tickBegin(emu_nuklear_layer* layer, emu_sdl_wrapper* sdl);
+SDL_AppResult emu_nuklear_tickEnd(emu_nuklear_layer* layer, emu_sdl_wrapper* sdl);
 void emu_nuklear_free(emu_nuklear_layer* layer);
 
 #endif

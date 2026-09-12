@@ -141,7 +141,8 @@ SDL_AppResult emu_app_tick(emu_app* app)
 		return res;
 	}
 
-	res = emu_nuklear_tick(app->nuklear, app->sdl);
+	emu_nuklear_tickBegin(app->nuklear, app->sdl);
+	res = emu_nuklear_tickEnd(app->nuklear, app->sdl);
 	return res;
 }
 

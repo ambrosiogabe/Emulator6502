@@ -15,14 +15,7 @@
 #include "nuklear.h"
 #define NK_SDL3_RENDERER_IMPLEMENTATION
 #include "demo/sdl3_renderer/nuklear_sdl3_renderer.h"
-
-#define INCLUDE_OVERVIEW
-#define INCLUDE_CONFIGURATOR
-#define INCLUDE_STYLE
-
 #include "demo/common/style.c"
-#include "demo/common/overview.c"
-#include "demo/common/style_configurator.c"
 #pragma warning(pop)
 
 /* ===============================================================
@@ -123,73 +116,25 @@ SDL_AppResult emu_nuklear_handleEvent(emu_nuklear_layer* layer, emu_sdl_wrapper*
     return SDL_APP_CONTINUE;
 }
 
-SDL_AppResult emu_nuklear_tick(emu_nuklear_layer* layer, emu_sdl_wrapper* sdl)
+void emu_nuklear_tickBegin(emu_nuklear_layer* layer, emu_sdl_wrapper* sdl)
 {
     struct nk_context* ctx = layer->ctx;
-
-#ifdef INCLUDE_CONFIGURATOR
-    static struct nk_color color_table[NK_COLOR_COUNT];
-    NK_MEMCPY(color_table, nk_default_color_style, sizeof(color_table));
-#endif
-
     nk_input_end(ctx);
 
-    /* GUI */
-    if (nk_begin(ctx, "Demo", nk_rect(50, 50, 230, 250),
-        NK_WINDOW_BORDER | NK_WINDOW_MOVABLE | NK_WINDOW_SCALABLE |
-        NK_WINDOW_MINIMIZABLE | NK_WINDOW_TITLE))
-    {
-        enum { EASY, HARD };
-        static int op = EASY;
-        static int property = 20;
+    nk_begin(layer->ctx, "Main Window", nk_rect(50.0f, 50.0f, 300.0f, 450.0f), 
+        NK_WINDOW_BORDER | NK_WINDOW_CLOSABLE | NK_WINDOW_MOVABLE | NK_WINDOW_SCALABLE);
+    nk_end(layer->ctx);
+}
 
-        nk_layout_row_static(ctx, 30, 80, 1);
-        if (nk_button_label(ctx, "button"))
-        {
-            SDL_Log("button pressed");
-        }
-        nk_layout_row_dynamic(ctx, 30, 2);
-        if (nk_option_label(ctx, "easy", op == EASY)) op = EASY;
-        if (nk_option_label(ctx, "hard", op == HARD)) op = HARD;
-        nk_layout_row_dynamic(ctx, 25, 1);
-        nk_property_int(ctx, "Compression:", 0, &property, 1000, 1, 1);
-
-        nk_layout_row_dynamic(ctx, 20, 1);
-        nk_label(ctx, "background:", NK_TEXT_LEFT);
-        nk_layout_row_dynamic(ctx, 25, 1);
-        if (nk_combo_begin_color(ctx, nk_rgb_cf(layer->bg), nk_vec2(nk_widget_width(ctx), 400)))
-        {
-            nk_layout_row_dynamic(ctx, 120, 1);
-            layer->bg = nk_color_picker(ctx, layer->bg, NK_RGBA);
-            nk_layout_row_dynamic(ctx, 25, 1);
-            layer->bg.r = nk_propertyf(ctx, "#R:", 0, layer->bg.r, 1.0f, 0.01f, 0.005f);
-            layer->bg.g = nk_propertyf(ctx, "#G:", 0, layer->bg.g, 1.0f, 0.01f, 0.005f);
-            layer->bg.b = nk_propertyf(ctx, "#B:", 0, layer->bg.b, 1.0f, 0.01f, 0.005f);
-            layer->bg.a = nk_propertyf(ctx, "#A:", 0, layer->bg.a, 1.0f, 0.01f, 0.005f);
-            nk_combo_end(ctx);
-        }
-    }
-    nk_end(ctx);
-
-    /* -------------- EXAMPLES ---------------- */
-#ifdef INCLUDE_OVERVIEW
-    overview(ctx);
-#endif
-#ifdef INCLUDE_CONFIGURATOR
-    style_configurator(ctx, color_table);
-#endif
-    /* ----------------------------------------- */
+SDL_AppResult emu_nuklear_tickEnd(emu_nuklear_layer* layer, emu_sdl_wrapper* sdl)
+{
+    struct nk_context* ctx = layer->ctx;
 
     SDL_SetRenderDrawColorFloat(sdl->renderer, layer->bg.r, layer->bg.g, layer->bg.b, layer->bg.a);
     SDL_RenderClear(sdl->renderer);
 
     nk_sdl_render(ctx, layer->AA);
     nk_sdl_update_TextInput(ctx);
-
-    /* show if TextInput is active for debug purpose. Feel free to remove this. */
-    SDL_SetRenderDrawColor(sdl->renderer, 0xFF, 0xFF, 0xFF, 0xFF);
-    SDL_RenderDebugTextFormat(sdl->renderer, 10, 10, "TextInputActive? %s",
-        SDL_TextInputActive(sdl->window) ? "Yes" : "No");
 
     SDL_RenderPresent(sdl->renderer);
 
