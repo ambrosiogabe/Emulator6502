@@ -1,51 +1,55 @@
+#include "frontend/SdlWrapper.h"
 #include "utils/SafeVendor.h"
+#include "Emulator/App.h"
 
 #include <SDL3/SDL.h>
 
-/* We will use this renderer to draw into this window every frame. */
-static SDL_Window* window = NULL;
-static SDL_Renderer* renderer = NULL;
-
-SDL_AppResult emu_frontend_initAndCreateWindow()
+emu_sdl_wrapper* emu_frontend_initAndCreateWindow()
 {
+	emu_sdl_wrapper* wrapper = g_memory_allocate(sizeof(emu_sdl_wrapper));
+	*wrapper = (emu_sdl_wrapper){ 0 };
+
 	SDL_SetAppMetadata("6502 Emulator", "1.0", "emulator");
 
-	if (!SDL_Init(SDL_INIT_VIDEO))
+	if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS))
 	{
 		g_logger_error("Couldn't initialize SDL: %s", SDL_GetError());
-		return SDL_APP_FAILURE;
+		g_memory_free(wrapper);
+		return NULL;
 	}
 
-	if (!SDL_CreateWindowAndRenderer("6502 Emulator", 1920, 1080, SDL_WINDOW_RESIZABLE, &window, &renderer))
+	if (!SDL_CreateWindowAndRenderer("6502 Emulator", 1920, 1080, SDL_WINDOW_RESIZABLE, &wrapper->window, &wrapper->renderer))
 	{
 		g_logger_error("Couldn't create window/renderer: %s", SDL_GetError());
-		return SDL_APP_FAILURE;
+		g_memory_free(wrapper);
+		return NULL;
 	}
-	SDL_SetRenderLogicalPresentation(renderer, 640, 480, SDL_LOGICAL_PRESENTATION_LETTERBOX);
 
+
+	if (!SDL_SetRenderVSync(wrapper->renderer, 1))
+	{
+		g_logger_error("SDL_SetRenderVSync failed: %s", SDL_GetError());
+		g_memory_free(wrapper);
+		return NULL;
+	}
+
+	return wrapper;
+}
+
+SDL_AppResult emu_frontend_tick(emu_sdl_wrapper* sdl)
+{
 	return SDL_APP_CONTINUE;  /* carry on with the program! */
 }
 
-SDL_AppResult emu_frontend_tick()
+SDL_AppResult emu_frontend_free(emu_sdl_wrapper* wrapper)
 {
-	const double now = ((double)SDL_GetTicks()) / 1000.0;  /* convert from milliseconds to seconds. */
-	/* choose the color for the frame we will draw. The sine wave trick makes it fade between colors smoothly. */
-	const float red = (float)(0.5 + 0.5 * SDL_sin(now));
-	const float green = (float)(0.5 + 0.5 * SDL_sin(now + SDL_PI_D * 2 / 3));
-	const float blue = (float)(0.5 + 0.5 * SDL_sin(now + SDL_PI_D * 4 / 3));
-	SDL_SetRenderDrawColorFloat(renderer, red, green, blue, SDL_ALPHA_OPAQUE_FLOAT);  /* new color, full alpha. */
+	if (wrapper)
+	{
+		SDL_DestroyRenderer(wrapper->renderer);
+		SDL_DestroyWindow(wrapper->window);
+		g_memory_free(wrapper);
+	}
 
-	/* clear the window to the draw color. */
-	SDL_RenderClear(renderer);
-
-	/* put the newly-cleared rendering on the screen. */
-	SDL_RenderPresent(renderer);
-
-	return SDL_APP_CONTINUE;  /* carry on with the program! */
-}
-
-SDL_AppResult emu_frontend_free()
-{
 	/* SDL will clean up the window/renderer for us. */
 	return SDL_APP_CONTINUE;
 }

@@ -4,6 +4,8 @@
 #include "Emulator/Assembler.h"
 #include "Emulator/Types.h"
 #include "utils/FileHelper.h"
+#include "frontend/SdlWrapper.h"
+#include "frontend/NuklearLayer.h"
 
 #include <stdio.h>
 #include <conio.h>
@@ -92,7 +94,7 @@ emu_assembler_program* emu_app_loadProgram(emu_app* app)
 	return res;
 }
 
-emu_app emu_app_init()
+emu_app* emu_app_init(bool initializeGuiLayers)
 {
 	emu_debugger* debugger = (emu_debugger*)g_memory_allocate(sizeof(emu_debugger));
 	emu_virtualMachine* vm = (emu_virtualMachine*)g_memory_allocate(sizeof(emu_virtualMachine));
@@ -101,29 +103,69 @@ emu_app emu_app_init()
 	*debugger = emu_debugger_init();
 	*vm = emu_vm_init(emu_vmType_NES);
 
-	emu_app res = {
+	emu_app* res = g_memory_allocate(sizeof(emu_app));
+	*res = (emu_app){
 		.debugger = debugger,
-		.vm = vm
+		.vm = vm,
+		.sdl = NULL,
+		.nuklear = NULL,
 	};
+
+	if (initializeGuiLayers) 
+	{
+		res->sdl = emu_frontend_initAndCreateWindow();
+		if (res->sdl)
+		{
+			res->nuklear = emu_nuklear_init(res->sdl);
+		}
+	}
+
 	return res;
 }
 
-void emu_app_free(emu_app* a)
+SDL_AppResult emu_app_handleEvent(emu_app* app, SDL_Event* event)
 {
-	if (a)
+	if (event->type == SDL_EVENT_QUIT)
 	{
-		if (a->debugger)
+		return SDL_APP_SUCCESS;
+	}
+
+	return emu_nuklear_handleEvent(app->nuklear, app->sdl, event);
+}
+
+SDL_AppResult emu_app_tick(emu_app* app)
+{
+	SDL_AppResult res = emu_frontend_tick(app->sdl);
+	if (res != SDL_APP_CONTINUE)
+	{
+		return res;
+	}
+
+	res = emu_nuklear_tick(app->nuklear, app->sdl);
+	return res;
+}
+
+void emu_app_free(emu_app* app)
+{
+	if (app)
+	{
+		emu_nuklear_free(app->nuklear);
+		emu_frontend_free(app->sdl);
+
+		if (app->debugger)
 		{
-			emu_debugger_free(a->debugger);
-			g_memory_free(a->debugger);
-			a->debugger = NULL;
+			emu_debugger_free(app->debugger);
+			g_memory_free(app->debugger);
+			app->debugger = NULL;
 		}
 
-		if (a->vm)
+		if (app->vm)
 		{
-			emu_vm_free(a->vm);
-			g_memory_free(a->vm);
-			a->vm = NULL;
+			emu_vm_free(app->vm);
+			g_memory_free(app->vm);
+			app->vm = NULL;
 		}
+
+		g_memory_free(app);
 	}
 }
