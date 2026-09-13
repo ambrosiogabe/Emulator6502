@@ -10,6 +10,48 @@
 #include <stdio.h>
 #include <conio.h>
 
+#include <tree_sitter/api.h>
+#include <assert.h>
+#include <string.h>
+
+// Declare the `tree_sitter_asm6502` function, which is
+// implemented by the `tree-sitter-asm6502` library.
+const TSLanguage* tree_sitter_asm6502(void);
+
+int testTreeSitter(char* source_code)
+{
+	// Create a parser.
+	TSParser* parser = ts_parser_new();
+
+	// Set the parser's language (JSON in this case).
+	ts_parser_set_language(parser, tree_sitter_asm6502());
+
+	// Build a syntax tree based on source code stored in a string.
+	TSTree* tree = ts_parser_parse_string(
+		parser,
+		NULL,
+		source_code,
+		(uint32)strlen(source_code)
+	);
+
+	// Get the root node of the syntax tree.
+	TSNode root_node = ts_tree_root_node(tree);
+
+	// Get some child nodes.
+	//TSNode array_node = ts_node_named_child(root_node, 0);
+	//TSNode number_node = ts_node_named_child(array_node, 0);
+
+	// Print the syntax tree as an S-expression.
+	char* string = ts_node_string(root_node);
+	printf("Syntax tree: %s\n", string);
+
+	// Free all of the heap-allocated memory.
+	free(string);
+	ts_tree_delete(tree);
+	ts_parser_delete(parser);
+	return 0;
+}
+
 
 static void flushScanf()
 {
@@ -81,6 +123,11 @@ emu_assembler_program* emu_app_loadProgram(emu_app* app)
 	// For now, let's just read a file and parse it?
 	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\05_subroutines.s";
 	const char* outputFile = "G:\\dev\\6502\\testProject\\tutorial\\05_subroutines.bin";
+
+	emu_file sourceCodeFile = { 0 };
+	emu_file_read(programFile, &sourceCodeFile);
+	printf("%s\n", sourceCodeFile.data);
+	testTreeSitter(sourceCodeFile.data);
 
 	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, programFile, UINT16_MAX);
 	emu_file_write(outputFile, program.data, program.dataSize);

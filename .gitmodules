@@ -10,3 +10,6 @@
 [submodule "Emulator/vendor/tree-sitter"]
 	path = Emulator/vendor/tree-sitter
 	url = https://github.com/tree-sitter/tree-sitter
+[submodule "Emulator/vendor/tree-sitter-asm6502"]
+	path = Emulator/vendor/tree-sitter-asm6502
+	url = https://github.com/ambrosiogabe/tree-sitter-asm6502

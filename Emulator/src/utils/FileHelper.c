@@ -25,24 +25,6 @@ emu_fileResult emu_file_read(const char* filename, emu_file* result)
 	fread(result->data, result->data_size, 1, file);
 	result->data[fileSize] = '\0';
 
-	// Remove carriage returns
-	{
-		size_t write_index = 0;
-
-		for (size_t read_index = 0; read_index < fileSize; read_index++)
-		{
-			if (result->data[read_index] != '\r')
-			{
-				result->data[write_index] = result->data[read_index];
-				write_index++;
-			}
-		}
-
-		// Update the buffer size to reflect the omitted characters
-		result->data = g_memory_realloc(result->data, write_index);
-		result->data_size = write_index;
-	}
-
 	fclose(file);
 
 	return emu_fileResult_Success;

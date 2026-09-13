@@ -75,7 +75,9 @@ project "Emulator6502"
     
     files {
         "Emulator/src/**.c",
-        "Emulator/include/**.h"
+        "Emulator/include/**.h",
+        -- Tree sitter parser for 6502
+        "Emulator/vendor/tree-sitter-asm6502/src/parser.c"
     }
 
     includedirs {
@@ -84,7 +86,11 @@ project "Emulator6502"
         -- SDL
         "Emulator/vendor/sdl/include",
         -- Nuklear
-        "Emulator/vendor/nuklear/"
+        "Emulator/vendor/nuklear/",
+        -- Tree-sitter
+        "Emulator/vendor/tree-sitter/lib/include",
+        -- Tree-sitter-asm6502
+        "Emulator/vendor/tree-sitter-asm6502/src",
     }
 
     prelinkcommands {
