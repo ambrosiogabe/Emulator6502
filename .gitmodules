@@ -13,3 +13,6 @@
 [submodule "Emulator/vendor/tree-sitter-asm6502"]
 	path = Emulator/vendor/tree-sitter-asm6502
 	url = https://github.com/ambrosiogabe/tree-sitter-asm6502
+[submodule "Emulator/vendor/tinyfiledialog"]
+	path = Emulator/vendor/tinyfiledialog
+	url = https://github.com/native-toolkit/libtinyfiledialogs
