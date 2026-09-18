@@ -11,4 +11,13 @@ void emu_cimgui_tickBegin(emu_sdl_wrapper* sdl);
 SDL_AppResult emu_cimgui_tickEnd(emu_sdl_wrapper* sdl);
 void emu_cimgui_free(ImGuiContext* ctx);
 
+typedef enum CImGui_FontType
+{
+	CImGui_FontType_Default = 0,
+	CImGui_FontType_Mono
+} CImGui_FontType;
+
+void emu_cimgui_pushFont(CImGui_FontType fontType);
+void emu_cimgui_popFont();
+
 #endif

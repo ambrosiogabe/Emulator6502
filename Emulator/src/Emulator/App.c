@@ -6,6 +6,7 @@
 #include "utils/FileHelper.h"
 #include "frontend/SdlWrapper.h"
 #include "frontend/ImGuiLayer.h"
+#include "frontend/SyntaxHighlighter.h"
 
 #include <stdio.h>
 #include <conio.h>
@@ -149,6 +150,7 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 	emu_virtualMachine* vm = (emu_virtualMachine*)g_memory_allocate(sizeof(emu_virtualMachine));
 
 	emu_vm_initDebug();
+	emu_SyntaxHighlighter_init();
 	*debugger = emu_debugger_init();
 	*vm = emu_vm_init(emu_vmType_NES);
 
@@ -219,6 +221,7 @@ void emu_app_free(emu_app* app)
 	if (app)
 	{
 		emu_cimgui_free(app->imgui);
+		emu_SyntaxHighlighter_free();
 		emu_frontend_free(app->sdl);
 
 		if (app->debugger)

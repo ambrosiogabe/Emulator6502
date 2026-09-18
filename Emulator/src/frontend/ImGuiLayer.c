@@ -1,16 +1,19 @@
 #include "frontend/ImGuiLayer.h"
 #include "frontend/SdlWrapper.h"
-
+#include "frontend/CodeEditor.h"
 #include "utils/SafeVendor.h"
 
-#include "dcimgui.h"
-#include "backends/dcimgui_impl_sdl3.h"
-#include "backends/dcimgui_impl_sdlrenderer3.h"
+#include <dcimgui.h>
+#include <backends/dcimgui_impl_sdl3.h>
+#include <backends/dcimgui_impl_sdlrenderer3.h>
 
 // Our state
 bool show_demo_window = true;
 bool show_another_window = false;
 ImVec4 clear_color;
+
+static ImFont* monoFont = NULL;
+static ImFont* defaultFont = NULL;
 
 ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl)
 {
@@ -56,6 +59,10 @@ ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl)
     //io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
     //ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
     //IM_ASSERT(font != nullptr);
+    ImFontAtlas_AddFontDefault(io->Fonts, NULL);
+    monoFont = ImFontAtlas_AddFontFromFileTTF(io->Fonts, "C:/Windows/Fonts/UbuntuMono-Regular.ttf", 16.0f, NULL, NULL);
+    IM_ASSERT(monoFont != NULL);
+    defaultFont = io->FontDefault;
 
     clear_color.x = 0.45f;
     clear_color.y = 0.55f;
@@ -116,6 +123,8 @@ void emu_cimgui_tickBegin(emu_sdl_wrapper* sdl)
             show_another_window = false;
         ImGui_End();
     }
+
+    emu_CodeEditor_tick();
 }
 
 SDL_AppResult emu_cimgui_tickEnd(emu_sdl_wrapper* sdl)
@@ -140,4 +149,22 @@ void emu_cimgui_free(ImGuiContext* ctx)
     cImGui_ImplSDLRenderer3_Shutdown();
     cImGui_ImplSDL3_Shutdown();
     ImGui_DestroyContext(ctx);
+}
+
+void emu_cimgui_pushFont(CImGui_FontType fontType)
+{
+    switch (fontType)
+    {
+    case CImGui_FontType_Default:
+        ImGui_PushFont(defaultFont);
+        break;
+    case CImGui_FontType_Mono:
+        ImGui_PushFont(monoFont);
+        break;
+    }
+}
+
+void emu_cimgui_popFont()
+{
+    ImGui_PopFont();
 }
