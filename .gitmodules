@@ -1,9 +1,6 @@
 [submodule "Emulator/vendor/CppUtils"]
 	path = Emulator/vendor/CppUtils
 	url = https://github.com/ambrosiogabe/CppUtils
-[submodule "Emulator/vendor/nuklear"]
-	path = Emulator/vendor/nuklear
-	url = https://github.com/Immediate-Mode-UI/Nuklear
 [submodule "Emulator/vendor/sdl"]
 	path = Emulator/vendor/sdl
 	url = https://github.com/libsdl-org/SDL
@@ -16,3 +13,9 @@
 [submodule "Emulator/vendor/tinyfiledialog"]
 	path = Emulator/vendor/tinyfiledialog
 	url = https://github.com/native-toolkit/libtinyfiledialogs
+[submodule "Emulator/vendor/dear_bindings"]
+	path = Emulator/vendor/dear_bindings
+	url = https://github.com/dearimgui/dear_bindings
+[submodule "Emulator/vendor/dear-imgui"]
+	path = Emulator/vendor/imgui
+	url = https://github.com/ocornut/imgui

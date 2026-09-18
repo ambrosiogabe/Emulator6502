@@ -10,7 +10,7 @@
 /* This function runs once at startup. */
 SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 {
-	bool runTui = true;
+	bool runTui = false;
 
 	g_memory_init(true, 32);
 	emu_app* app = emu_app_init(!runTui);
@@ -24,7 +24,7 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 		return SDL_APP_SUCCESS;
 	}
 
-	if (!app->sdl || !app->nuklear)
+	if (!app->sdl || !app->imgui)
 	{
 		emu_app_free(app);
 		*appstate = NULL;

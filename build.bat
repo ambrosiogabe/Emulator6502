@@ -3,12 +3,21 @@
 IF "%~1" == "" GOTO PrintHelp
 IF "%~1" == "help" GOTO PrintHelp
 IF "%~1" == "h" GOTO PrintHelp
+IF "%~1" == "clean" GOTO Clean
 
 REM Build vendor projects that use cmake
 if not exist Emulator\vendor\sdl\Build (
     mkdir Emulator\vendor\sdl\Build
     pushd Emulator\vendor\sdl\Build
     cmake -S .. -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=OFF -DSDL_STATIC=ON
+    popd
+)
+
+if not exist Emulator\vendor\dear_bindings\generated (
+    pushd Emulator\vendor\dear_bindings
+    pip install -r requirements.txt
+    python dear_bindings.py -o dcimgui_internal --include ../imgui/imgui.h ../imgui/imgui_internal.h
+    BuildAllBindings.bat
     popd
 )
 
@@ -36,6 +45,13 @@ echo   vs2017            Generate Visual Studio 2017 project files
 echo   vs2019            Generate Visual Studio 2019 project files
 echo   vs2022            Generate Visual Studio 2022 project files
 echo   xcode4            Generate Apple Xcode 4 project files
+GOTO Done
+
+:Clean
+
+rmdir /s /q Emulator\vendor\sdl\Build
+rmdir /s /q Emulator\vendor\cimgui\Build
+
 GOTO Done
 
 :Done

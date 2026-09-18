@@ -18,13 +18,18 @@ emu_sdl_wrapper* emu_frontend_initAndCreateWindow()
 		return NULL;
 	}
 
-	if (!SDL_CreateWindowAndRenderer("6502 Emulator", 1920, 1080, SDL_WINDOW_RESIZABLE, &wrapper->window, &wrapper->renderer))
+	if (!SDL_CreateWindowAndRenderer(
+		"6502 Emulator",
+		1920,
+		1080,
+		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY,
+		&wrapper->window,
+		&wrapper->renderer))
 	{
 		g_logger_error("Couldn't create window/renderer: %s", SDL_GetError());
 		g_memory_free(wrapper);
 		return NULL;
 	}
-
 
 	if (!SDL_SetRenderVSync(wrapper->renderer, 1))
 	{
@@ -32,6 +37,9 @@ emu_sdl_wrapper* emu_frontend_initAndCreateWindow()
 		g_memory_free(wrapper);
 		return NULL;
 	}
+
+	SDL_SetWindowPosition(wrapper->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+	SDL_ShowWindow(wrapper->window);
 
 	return wrapper;
 }

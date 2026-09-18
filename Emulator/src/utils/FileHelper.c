@@ -1,6 +1,8 @@
 #include "utils/FileHelper.h"
+#include "Emulator/App.h"
 
 #include <stdio.h>
+#include <tinyfiledialogs.h>
 
 emu_fileResult emu_file_read(const char* filename, emu_file* result)
 {
@@ -52,4 +54,23 @@ void emu_file_write(const char* filename, uint8* binaryData, size_t dataSize)
 	// Write the entire array to the file
 	fwrite(binaryData, dataSize, 1, file);
 	fclose(file);
+}
+
+const char* emu_file_openFileDialog(int numFileFilters, const char** fileFilters)
+{
+	emu_app_pauseApp();
+	const int multipleFilesAllowed = 0;
+	const char* fileFilterDesc = "";
+	const char* title = "";
+	const char* defaultDir = "";
+	char const* filename = tinyfd_openFileDialog(
+		title,
+		defaultDir,
+		numFileFilters,
+		fileFilters,
+		fileFilterDesc,
+		multipleFilesAllowed);
+	emu_app_resumeApp();
+
+	return filename;
 }

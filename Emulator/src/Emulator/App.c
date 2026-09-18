@@ -5,7 +5,7 @@
 #include "Emulator/Types.h"
 #include "utils/FileHelper.h"
 #include "frontend/SdlWrapper.h"
-#include "frontend/NuklearLayer.h"
+#include "frontend/ImGuiLayer.h"
 
 #include <stdio.h>
 #include <conio.h>
@@ -13,6 +13,8 @@
 #include <tree_sitter/api.h>
 #include <assert.h>
 #include <string.h>
+
+static bool isAppPaused = false;
 
 // Declare the `tree_sitter_asm6502` function, which is
 // implemented by the `tree-sitter-asm6502` library.
@@ -155,7 +157,6 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 		.debugger = debugger,
 		.vm = vm,
 		.sdl = NULL,
-		.nuklear = NULL,
 	};
 
 	if (initializeGuiLayers) 
@@ -163,33 +164,53 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 		res->sdl = emu_frontend_initAndCreateWindow();
 		if (res->sdl)
 		{
-			res->nuklear = emu_nuklear_init(res->sdl);
+			res->imgui = emu_cimgui_init(res->sdl);
 		}
 	}
 
 	return res;
 }
 
+void emu_app_pauseApp()
+{
+	isAppPaused = true;
+}
+
+void emu_app_resumeApp()
+{
+	isAppPaused = false;
+}
+
 SDL_AppResult emu_app_handleEvent(emu_app* app, SDL_Event* event)
 {
+	if (isAppPaused)
+	{
+		return SDL_APP_CONTINUE;
+	}
+
 	if (event->type == SDL_EVENT_QUIT)
 	{
 		return SDL_APP_SUCCESS;
 	}
 
-	return emu_nuklear_handleEvent(app->nuklear, app->sdl, event);
+	return emu_cimgui_handleEvent(event);
 }
 
 SDL_AppResult emu_app_tick(emu_app* app)
 {
+	if (isAppPaused)
+	{
+		return SDL_APP_CONTINUE;
+	}
+
 	SDL_AppResult res = emu_frontend_tick(app->sdl);
 	if (res != SDL_APP_CONTINUE)
 	{
 		return res;
 	}
 
-	emu_nuklear_tickBegin(app->nuklear, app->sdl);
-	res = emu_nuklear_tickEnd(app->nuklear, app->sdl);
+	emu_cimgui_tickBegin(app->sdl);
+	res = emu_cimgui_tickEnd(app->sdl);
 	return res;
 }
 
@@ -197,7 +218,7 @@ void emu_app_free(emu_app* app)
 {
 	if (app)
 	{
-		emu_nuklear_free(app->nuklear);
+		emu_cimgui_free(app->imgui);
 		emu_frontend_free(app->sdl);
 
 		if (app->debugger)

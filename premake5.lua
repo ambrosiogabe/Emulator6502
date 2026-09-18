@@ -21,7 +21,7 @@ externalproject "SDL3-static"
 
     -- Explicitly pass the C11 flag to MSVC because premake is stupid
     filter "toolset:msc*"
-        buildoptions { "/std:c11" }    
+        buildoptions { "/std:c11" }         
 
 project "tree-sitter"
     kind "StaticLib"
@@ -45,6 +45,73 @@ project "tree-sitter"
         "Emulator/vendor/tree-sitter/lib/include"
     }    
 
+project "tinyfiledialogs"
+    kind "StaticLib"
+    language "C"
+    cdialect "C11"
+    staticruntime "on"
+
+    targetdir("bin/" .. outputdir .. "/%{prj.name}")
+    objdir("bin-int/" .. outputdir .. "/%{prj.name}")
+
+    -- Explicitly pass the C11 flag to MSVC because premake is stupid
+    filter "toolset:msc*"
+        buildoptions { "/std:c11" }    
+
+    files {
+        "Emulator/vendor/tinyfiledialog/tinyfiledialogs.c"
+    }
+
+    includedirs {
+        "Emulator/vendor/tinyfiledialog"
+    }  
+
+project "imgui"
+    kind "StaticLib"
+    language "C++"
+    cppdialect "C++17"
+    staticruntime "on"
+
+    targetdir("bin/" .. outputdir .. "/%{prj.name}")
+    objdir("bin-int/" .. outputdir .. "/%{prj.name}")
+
+    -- Explicitly pass the C11 flag to MSVC because premake is stupid
+    filter "toolset:msc*"
+        buildoptions { "/std:c++17" }    
+
+    files {
+        "Emulator/vendor/dear_bindings/generated/dcimgui.cpp",
+        "Emulator/vendor/dear_bindings/generated/dcimgui.h",
+        "Emulator/vendor/dear_bindings/generated/dcimgui_internal.cpp",
+        "Emulator/vendor/dear_bindings/generated/dcimgui_internal.h",
+        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdl3.cpp",
+        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdl3.h",
+        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlrenderer3.cpp",
+        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlrenderer3.h",
+        "Emulator/vendor/imgui/imconfig.h",
+        "Emulator/vendor/imgui/imgui.cpp",
+        "Emulator/vendor/imgui/imgui.h",
+        "Emulator/vendor/imgui/imgui_demo.cpp",
+        "Emulator/vendor/imgui/imgui_draw.cpp",
+        "Emulator/vendor/imgui/imgui_internal.h",
+        "Emulator/vendor/imgui/imgui_tables.cpp",
+        "Emulator/vendor/imgui/imgui_widgets.cpp",
+        "Emulator/vendor/imgui/imstb_rectpack.h",
+        "Emulator/vendor/imgui/imstb_textedit.h",
+        "Emulator/vendor/imgui/imstb_truetype.h",
+        "Emulator/vendor/imgui/backends/imgui_impl_sdl3.cpp",
+        "Emulator/vendor/imgui/backends/imgui_impl_sdl3.h",
+        "Emulator/vendor/imgui/backends/imgui_impl_sdlrenderer3.cpp",
+        "Emulator/vendor/imgui/backends/imgui_impl_sdlrenderer3.h",
+    }
+
+    includedirs {
+        "Emulator/vendor/dear_bindings/generated",
+        "Emulator/vendor/imgui",
+        "Emulator/vendor/imgui/backends",
+        "Emulator/vendor/sdl/include",
+    }      
+
 project "Emulator6502"
     kind "ConsoleApp"
     language "C"
@@ -52,7 +119,7 @@ project "Emulator6502"
     staticruntime "on"
 
     warnings "Extra" 
-    buildoptions { "-WX", "/wd4100" }
+    buildoptions { "-WX", "/wd4100", "/wd5287" }
 
     -- Explicitly pass the C11 flag to MSVC because premake is stupid
     filter "toolset:msc*"
@@ -63,11 +130,16 @@ project "Emulator6502"
         "tree-sitter",
         "winmm",
         "version",
-        "imm32"
+        "imm32",
+        "tinyfiledialogs",
+        "imgui"
     }
 
     dependson {
         "SDL3-static",
+        "tree-sitter",
+        "tinyfiledialogs",
+        "imgui"
     }
 
     targetdir("bin/" .. outputdir .. "/%{prj.name}")
@@ -77,7 +149,7 @@ project "Emulator6502"
         "Emulator/src/**.c",
         "Emulator/include/**.h",
         -- Tree sitter parser for 6502
-        "Emulator/vendor/tree-sitter-asm6502/src/parser.c"
+        "Emulator/vendor/tree-sitter-asm6502/src/parser.c",
     }
 
     includedirs {
@@ -85,17 +157,15 @@ project "Emulator6502"
         "Emulator/vendor/CppUtils/single_include",
         -- SDL
         "Emulator/vendor/sdl/include",
-        -- Nuklear
-        "Emulator/vendor/nuklear/",
         -- Tree-sitter
         "Emulator/vendor/tree-sitter/lib/include",
         -- Tree-sitter-asm6502
         "Emulator/vendor/tree-sitter-asm6502/src",
-    }
-
-    prelinkcommands {
-        "copy /y \"Emulator\\vendor\\sdl\\Build\\%{cfg.buildcfg}\\Sdl3-static.lib\" \"%{cfg.targetdir}\\freetype.dll\"",
-
+        -- Tiny File dialog
+        "Emulator/vendor/tinyfiledialog",
+        -- imgui C bindings
+        "Emulator/vendor/dear_bindings/generated",
+        "Emulator/vendor/imgui"
     }
 
     filter "system:windows"
