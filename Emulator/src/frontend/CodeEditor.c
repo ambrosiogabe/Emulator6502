@@ -16,29 +16,139 @@ typedef struct HighlightedCode
 	uint32 endByte;
 } HighlightedCode;
 
-static HighlightedCode* codeHighlights = NULL;
+typedef struct CodeEditorPanel
+{
+	HighlightedCode* codeHighlights;
+	TSTree* syntaxTree;
+	char* sourceCodeBuffer;
+	size_t sourceCodeBufferLength;
+	size_t sourceCodeBufferCapacity;
+	char* filename;
+	size_t filenameLength;
+	bool open;
+} CodeEditorPanel;
+
+static CodeEditorPanel* panels;
 
 // Declare the `tree_sitter_asm6502` function, which is
 // implemented by the `tree-sitter-asm6502` library.
 const TSLanguage* tree_sitter_asm6502(void);
 
-static void getAllCaptures();
+static HighlightedCode* getAllCaptures(TSTree* syntaxTree);
+static TSTree* generateSyntaxTree(const char* sourceCodeBuffer, size_t sourceCodeBufferLength);
+static void renderCodePanel(CodeEditorPanel* panel);
+static void freePanel(CodeEditorPanel* panel);
 
-#define sourceCodeBufferMaxLength 4'096
-static char sourceCodeBuffer[sourceCodeBufferMaxLength];
-static int sourceCodeBufferLength;
-
-static TSTree* syntaxTree = NULL;
-
-static void generateSyntaxTree()
+void emu_CodeEditor_init()
 {
-	syntaxTree = emu_SyntaxHighlighter_highlightSource(sourceCodeBuffer, sourceCodeBufferLength);
-	getAllCaptures();
+	panels = NULL;
 }
 
-static void getAllCaptures()
+void emu_CodeEditor_free()
 {
-	const char* asmQuery = "(opcode) @function.builtin\
+	for (int i = 0; i < stbds_arrlen(panels); i++)
+	{
+		freePanel(panels + i);
+	}
+}
+
+void emu_CodeEditor_openFile(const char* fullFilepath)
+{
+	CodeEditorPanel res = (CodeEditorPanel){ 0 };
+
+	size_t fullFilepathLength = strlen(fullFilepath);
+	size_t lastSlashIndex = 0;
+	for (size_t i = fullFilepathLength; i > 0; i--)
+	{
+		if (fullFilepath[i] == '/' || fullFilepath[i] == '\\')
+		{
+			lastSlashIndex = i;
+			break;
+		}
+	}
+
+	// The extra -1 is for the / character
+	size_t filenameLength = fullFilepathLength - lastSlashIndex - (lastSlashIndex == 0 ? 0 : 1);
+	res.filename = g_memory_allocate(filenameLength + 1);
+	g_memory_copyMem(res.filename, (char*)fullFilepath + lastSlashIndex + 1, filenameLength);
+	res.filename[filenameLength] = '\0';
+	res.filenameLength = filenameLength;
+
+	emu_file file;
+	if (emu_file_read(fullFilepath, &file) == emu_fileResult_Success)
+	{
+		// Multiply by 1.5 to get some buffer room
+		res.sourceCodeBufferCapacity = (size_t)((float)file.data_size * 1.5f);
+		res.sourceCodeBufferLength = file.data_size;
+		res.sourceCodeBuffer = g_memory_allocate(res.sourceCodeBufferCapacity);
+
+		g_memory_copyMem(res.sourceCodeBuffer, file.data, file.data_size);
+		res.sourceCodeBuffer[file.data_size] = '\0';
+		res.syntaxTree = generateSyntaxTree(res.sourceCodeBuffer, res.sourceCodeBufferLength);
+		res.codeHighlights = getAllCaptures(res.syntaxTree);
+		emu_file_free(&file);
+	}
+	else
+	{
+		const size_t defaultCapacity = 1'024;
+		res.sourceCodeBuffer = g_memory_allocate(defaultCapacity);
+		res.sourceCodeBufferCapacity = defaultCapacity;
+		res.sourceCodeBufferLength = 0;
+		res.sourceCodeBuffer[0] = '\0';
+		res.syntaxTree = NULL;
+		res.codeHighlights = NULL;
+	}
+
+	res.open = true;
+	stbds_arrpush(panels, res);
+}
+
+void emu_CodeEditor_tick()
+{
+	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
+
+	ImGui_PushStyleColor(ImGuiCol_WindowBg, ImGui_ColorConvertFloat4ToU32(theme->bgColor));
+	if (ImGui_Begin("Code Editor", NULL, 0))
+	{
+		static ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs;
+		if (ImGui_BeginTabBar("MyTabBar", tab_bar_flags))
+		{
+			for (int i = 0; i < stbds_arrlen(panels); i++)
+			{
+				CodeEditorPanel* panel = panels + i;
+				if (panel->open && ImGui_BeginTabItem(panel->filename, &panel->open, ImGuiTabItemFlags_None))
+				{
+					renderCodePanel(panel);
+					ImGui_EndTabItem();
+				}
+
+				if (!panel->open)
+				{
+					g_logger_info("Freeing tab '%s'!", panel->filename);
+					freePanel(panel);
+					stbds_arrdel(panels, i);
+					i--;
+				}
+			}
+
+			ImGui_EndTabBar();
+		}
+	}
+	ImGui_PopStyleColor();
+
+	ImGui_End();
+}
+
+// ----------- Internal Definitions -------------
+
+static TSTree* generateSyntaxTree(const char* sourceCodeBuffer, size_t sourceCodeBufferLength)
+{
+	return emu_SyntaxHighlighter_highlightSource(sourceCodeBuffer, (uint32)sourceCodeBufferLength);
+}
+
+static HighlightedCode* getAllCaptures(TSTree* syntaxTree)
+{
+	static const char* asmHighlightsQuery = "(opcode) @function.builtin\
 		(num_literal) @constant.numeric\
 		(register) @constant.builtin\
 		(operator) @operator\
@@ -64,12 +174,12 @@ static void getAllCaptures()
 
 	uint32_t error_offset;
 	TSQueryError error_type;
-	TSQuery* query = ts_query_new(tree_sitter_asm6502(), asmQuery, (uint32)strlen(asmQuery), &error_offset, &error_type);
+	TSQuery* query = ts_query_new(tree_sitter_asm6502(), asmHighlightsQuery, (uint32)strlen(asmHighlightsQuery), &error_offset, &error_type);
 
 	if (!query)
 	{
 		g_logger_error("Query creation failed at offset %d:%d", error_offset, error_type);
-		return;
+		return NULL;
 	}
 
 	TSQueryCursor* cursor = ts_query_cursor_new();
@@ -86,6 +196,7 @@ static void getAllCaptures()
 	};
 
 	// Track the furthest byte position we have processed so far
+	HighlightedCode* codeHighlights = NULL;
 	uint32_t last_end_byte = 0;
 	while (ts_query_cursor_next_capture(cursor, &match, &captureIndex))
 	{
@@ -131,9 +242,11 @@ static void getAllCaptures()
 
 	ts_query_cursor_delete(cursor);
 	ts_query_delete(query);
+
+	return codeHighlights;
 }
 
-static void drawColoredText()
+static void renderCodePanel(CodeEditorPanel* panel)
 {
 	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
 
@@ -145,7 +258,7 @@ static void drawColoredText()
 	ImGui_PushStyleColor(ImGuiCol_Text, IM_COL32_BLACK_TRANS);
 	ImGui_PushStyleColor(ImGuiCol_FrameBg, ImGui_ColorConvertFloat4ToU32(theme->bgColor));
 	ImGui_PushStyleColor(ImGuiCol_InputTextCursor, ImGui_ColorConvertFloat4ToU32(theme->cursorColor));
-	ImGui_InputTextMultilineEx("##Source_Code", sourceCodeBuffer, sourceCodeBufferMaxLength, availableSize, flags, NULL, NULL);
+	ImGui_InputTextMultilineEx("##Source_Code", panel->sourceCodeBuffer, panel->sourceCodeBufferCapacity, availableSize, flags, NULL, NULL);
 	ImGuiContext* g = ImGui_GetCurrentContext();
 	const char* child_window_name = NULL;
 	cImFormatStringToTempBuffer(&child_window_name, NULL, "%s/%s_%08X", g->CurrentWindow->Name, "##Source_Code", ImGui_GetID("##Source_Code"));
@@ -179,21 +292,21 @@ static void drawColoredText()
 	// Example of drawing substrings manually with split colors
 	ImGui_PushFont(ImGui_GetFont()); // Match the active font
 
-	for (size_t i = 0; i < (size_t)stbds_arrlen(codeHighlights); i++)
+	for (size_t i = 0; i < (size_t)stbds_arrlen(panel->codeHighlights); i++)
 	{
-		char* start = sourceCodeBuffer + codeHighlights[i].startByte;
-		char* end = sourceCodeBuffer + codeHighlights[i].endByte;
-		uint32 color = ImGui_ColorConvertFloat4ToU32(codeHighlights[i].color);
+		char* start = panel->sourceCodeBuffer + panel->codeHighlights[i].startByte;
+		char* end = panel->sourceCodeBuffer + panel->codeHighlights[i].endByte;
+		uint32 color = ImGui_ColorConvertFloat4ToU32(panel->codeHighlights[i].color);
 
-		for (size_t charIndex = codeHighlights[i].startByte; charIndex < codeHighlights[i].endByte; charIndex++)
+		for (size_t charIndex = panel->codeHighlights[i].startByte; charIndex < panel->codeHighlights[i].endByte; charIndex++)
 		{
-			if (sourceCodeBuffer[charIndex] == '\n')
+			if (panel->sourceCodeBuffer[charIndex] == '\n')
 			{
 				ImDrawList_AddTextEx(draw_list, text_pos, color, start, end);
 				text_pos.y += ImGui_GetTextLineHeight();
 				text_pos.x = xStart;
 
-				start = sourceCodeBuffer + charIndex;
+				start = panel->sourceCodeBuffer + charIndex;
 			}
 		}
 
@@ -208,91 +321,27 @@ static void drawColoredText()
 	emu_cimgui_popFont();
 }
 
-void emu_CodeEditor_tick()
+static void freePanel(CodeEditorPanel* panel)
 {
-	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
-
-	if (ImGui_BeginMainMenuBar())
+	if (panel->codeHighlights)
 	{
-		if (ImGui_BeginMenu("File"))
-		{
-			if (ImGui_MenuItemEx("Open", "Ctrl+O", false, true))
-			{
-				const int numFileFilters = 2;
-				const char* fileFilters[] = { "*.s", "*.txt" };
-				const char* filename = emu_file_openFileDialog(numFileFilters, fileFilters);
-				if (filename != NULL)
-				{
-					if (syntaxTree)
-					{
-						emu_SyntaxHighlighter_freeSource(syntaxTree);
-						syntaxTree = NULL;
-					}
-
-					emu_file file;
-					if (emu_file_read(filename, &file) == emu_fileResult_Success)
-					{
-						if (file.data_size + 1 < sourceCodeBufferMaxLength)
-						{
-							g_memory_copyMem(sourceCodeBuffer, file.data, file.data_size);
-							sourceCodeBufferLength = (int)file.data_size;
-							sourceCodeBuffer[file.data_size] = '\0';
-							generateSyntaxTree();
-						}
-						emu_file_free(&file);
-					}
-					else
-					{
-						sourceCodeBuffer[0] = '\0';
-						sourceCodeBufferLength = 0;
-					}
-				}
-			}
-			if (ImGui_MenuItemEx("Save", "Ctrl+S", false, true))
-			{
-
-			}
-			ImGui_EndMenu();
-		}
-		if (ImGui_BeginMenu("Edit"))
-		{
-			if (ImGui_MenuItemEx("Undo", "Ctrl+Z", false, true)) g_logger_warning("TODO: Implement Undo");
-			if (ImGui_MenuItemEx("Redo", "Ctrl+Y", false, false)) g_logger_warning("TODO: Implement Redo");
-			ImGui_Separator();
-			if (ImGui_MenuItemEx("Cut", "Ctrl+X", false, true)) g_logger_warning("TODO: Implement Cut");
-			if (ImGui_MenuItemEx("Copy", "Ctrl+C", false, true)) g_logger_warning("TODO: Implement Copy");
-			if (ImGui_MenuItemEx("Paste", "Ctrl+V", false, true)) g_logger_warning("TODO: Implement Paste");
-			ImGui_Separator();
-			if (ImGui_BeginMenu("Set Theme"))
-			{
-				if (ImGui_MenuItem("Github Dark")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_Dark);
-				if (ImGui_MenuItem("Github Light")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_Light);
-				if (ImGui_MenuItem("Catpuccin Mocha")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_CatpuccinMocha);
-				if (ImGui_MenuItem("Ayu Dark")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_AyuDark);
-				if (ImGui_MenuItem("Dracula")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_Dracula);
-				if (ImGui_MenuItem("Everforest Dark")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_EverforestDark);
-				if (ImGui_MenuItem("Gruvbox Material")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_GruvboxMaterial);
-				if (ImGui_MenuItem("Gruvbox")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_Gruvbox);
-				if (ImGui_MenuItem("Kanagawa")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_Kanagawa);
-				if (ImGui_MenuItem("Nord")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_Nord);
-				if (ImGui_MenuItem("One Dark")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_OneDark);
-				if (ImGui_MenuItem("Rose Pine")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_RosePine);
-				if (ImGui_MenuItem("Solarized Light")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_SolarizedLight);
-				if (ImGui_MenuItem("Tokyo Night")) emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type_TokyoNight);
-
-				ImGui_EndMenu();
-			}
-			ImGui_EndMenu();
-		}
-		ImGui_EndMainMenuBar();
+		stbds_arrfree(panel->codeHighlights);
 	}
 
-	ImGui_PushStyleColor(ImGuiCol_WindowBg, ImGui_ColorConvertFloat4ToU32(theme->bgColor));
-	if (ImGui_Begin("Code Editor", NULL, 0))
+	if (panel->filename)
 	{
-		drawColoredText();
+		g_memory_free(panel->filename);
 	}
-	ImGui_PopStyleColor();
 
-	ImGui_End();
+	if (panel->sourceCodeBuffer)
+	{
+		g_memory_free(panel->sourceCodeBuffer);
+	}
+
+	if (panel->syntaxTree)
+	{
+		ts_tree_delete(panel->syntaxTree);
+	}
+
+	*panel = (CodeEditorPanel){ 0 };
 }

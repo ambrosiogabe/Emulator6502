@@ -1,6 +1,7 @@
 #include "frontend/ImGuiLayer.h"
 #include "frontend/SdlWrapper.h"
 #include "frontend/CodeEditor.h"
+#include "frontend/MainMenuBar.h"
 #include "utils/SafeVendor.h"
 
 #include <dcimgui.h>
@@ -69,6 +70,9 @@ ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl)
     clear_color.z = 0.60f;
     clear_color.w = 1.0f;
 
+    // Init frontend
+    emu_CodeEditor_init();
+
     return ctx;
 }
 
@@ -124,6 +128,7 @@ void emu_cimgui_tickBegin(emu_sdl_wrapper* sdl)
         ImGui_End();
     }
 
+    emu_MainMenuBar_tick();
     emu_CodeEditor_tick();
 }
 
@@ -144,6 +149,9 @@ SDL_AppResult emu_cimgui_tickEnd(emu_sdl_wrapper* sdl)
 
 void emu_cimgui_free(ImGuiContext* ctx)
 {
+    // Free frontend
+    emu_CodeEditor_free();
+
     // Cleanup
     // [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
     cImGui_ImplSDLRenderer3_Shutdown();
