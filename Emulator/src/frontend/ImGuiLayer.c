@@ -7,10 +7,15 @@
 #include "frontend/EmulatorViewport.h"
 #include "utils/SafeVendor.h"
 
+#include <IconsFontAwesome7.h>
+#include <IconsFontAwesome7Brands.h>
+
 #include <dcimgui.h>
 #include <backends/dcimgui_impl_sdl3.h>
 #include <backends/dcimgui_impl_sdlrenderer3.h>
 #include <dcimgui_internal.h>
+
+#include <float.h>
 
 // Our state
 bool show_demo_window = true;
@@ -64,7 +69,24 @@ ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl)
 	//io.Fonts->AddFontFromFileTTF("../../misc/fonts/Cousine-Regular.ttf");
 	//ImFont* font = io.Fonts->AddFontFromFileTTF("c:\\Windows\\Fonts\\ArialUni.ttf");
 	//IM_ASSERT(font != nullptr);
-	ImFontAtlas_AddFontDefault(io->Fonts, NULL);
+	//ImFontAtlas_AddFontDefault(io->Fonts, NULL);
+
+	// Add default font
+	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "C:/Windows/Fonts/segoeui.ttf", 18.0f, NULL, NULL);
+
+	ImFontConfig config = (ImFontConfig){ 0 };
+	config.MergeMode = true;
+	config.GlyphMinAdvanceX = 16.0f; // Use if you want to make the icon monospaced
+	config.FontDataOwnedByAtlas = true;
+	config.ExtraSizeScale = 1.0f;
+	config.GlyphMaxAdvanceX = FLT_MAX;
+	config.RasterizerMultiply = 1.0f;
+	config.RasterizerDensity = 1.0f;
+	static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
+	//ImFontAtlas_AddFontFromFileTTF(io->Fonts, "./assets/fonts/fa-regular-400.ttf", 16.0f, &config, icon_ranges);
+	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "./assets/fonts/fa-solid-900.ttf", 16.0f, &config, icon_ranges);
+	//ImFontAtlas_AddFontFromFileTTF(io->Fonts, "./assets/fonts/fa-brands-400.ttf", 16.0f, &config, NULL);
+
 	monoFont = ImFontAtlas_AddFontFromFileTTF(io->Fonts, "C:/Windows/Fonts/UbuntuMono-Regular.ttf", 16.0f, NULL, NULL);
 	IM_ASSERT(monoFont != NULL);
 	defaultFont = io->FontDefault;
@@ -76,6 +98,11 @@ ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl)
 
 	// Init frontend
 	emu_CodeEditor_init();
+	emu_ConsoleOutput_init();
+
+	emu_ConsoleOutput_info("This is a test");
+	emu_ConsoleOutput_warn("This is a test with formatting: '%s'", "I'm formatted here.");
+	emu_ConsoleOutput_error("%d:%d:%d", 11, 22, 33);
 
 	return ctx;
 }
@@ -156,6 +183,7 @@ void emu_cimgui_free(ImGuiContext* ctx)
 {
 	// Free frontend
 	emu_CodeEditor_free();
+	emu_ConsoleOutput_free();
 
 	// Cleanup
 	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]

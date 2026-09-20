@@ -165,7 +165,8 @@ project "Emulator6502"
         "Emulator/vendor/tinyfiledialog",
         -- imgui C bindings
         "Emulator/vendor/dear_bindings/generated",
-        "Emulator/vendor/imgui"
+        "Emulator/vendor/imgui",
+        "Emulator/vendor/IconFontCppHeaders",
     }
 
     filter "system:windows"
