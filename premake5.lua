@@ -119,7 +119,7 @@ project "Emulator6502"
     staticruntime "on"
 
     warnings "Extra" 
-    buildoptions { "-WX", "/wd4100", "/wd5287" }
+    buildoptions { "-WX", "/wd4100", "/wd5287", "/wd4206" }
 
     -- Explicitly pass the C11 flag to MSVC because premake is stupid
     filter "toolset:msc*"
