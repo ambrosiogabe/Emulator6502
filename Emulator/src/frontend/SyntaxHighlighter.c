@@ -375,6 +375,17 @@ TSTree* emu_SyntaxHighlighter_highlightSource(const char* source, uint32 sourceL
 	);
 }
 
+TSTree* emu_SyntaxHighlighter_editHighlights(TSTree* oldTree, const char* source, uint32 sourceLength)
+{
+	// Build a syntax tree based on source code stored in a string.
+	return ts_parser_parse_string(
+		parser,
+		oldTree,
+		source,
+		sourceLength
+	);
+}
+
 void emu_SyntaxHighlighter_freeSource(TSTree* tree)
 {
 	ts_tree_delete(tree);

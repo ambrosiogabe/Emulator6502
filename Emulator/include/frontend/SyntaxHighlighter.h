@@ -46,6 +46,7 @@ void emu_SyntaxHighlighter_setTheme(emu_CodeTheme_Type type);
 ImVec4 emu_SyntaxHighlighter_getColor(emu_CodeTheme const* const theme, const char* selector);
 
 TSTree* emu_SyntaxHighlighter_highlightSource(const char* source, uint32 sourceLength);
+TSTree* emu_SyntaxHighlighter_editHighlights(TSTree* oldTree, const char* source, uint32 sourceLength);
 void emu_SyntaxHighlighter_freeSource(TSTree* tree);
 
 #endif

@@ -34,8 +34,12 @@ static CodeEditorPanel* panels;
 // implemented by the `tree-sitter-asm6502` library.
 const TSLanguage* tree_sitter_asm6502(void);
 
-static HighlightedCode* getAllCaptures(TSTree* syntaxTree);
+static HighlightedCode* getAllCaptures(TSTree* syntaxTree, bool printCaptures, const char* source);
 static TSTree* generateSyntaxTree(const char* sourceCodeBuffer, size_t sourceCodeBufferLength);
+static TSTree* updateSyntaxTree(CodeEditorPanel* panel, const char* sourceCodeBuffer, size_t sourceCodeBufferLength);
+static int handleTextResizing(CodeEditorPanel* panel, ImGuiInputTextCallbackData* data);
+static void handleTextEdit(CodeEditorPanel* panel);
+static int inputTextCallback(ImGuiInputTextCallbackData* data);
 static void renderCodePanel(CodeEditorPanel* panel);
 static void freePanel(CodeEditorPanel* panel);
 
@@ -78,14 +82,14 @@ void emu_CodeEditor_openFile(const char* fullFilepath)
 	if (emu_file_read(fullFilepath, &file) == emu_fileResult_Success)
 	{
 		// Multiply by 1.5 to get some buffer room
-		res.sourceCodeBufferCapacity = (size_t)((float)file.data_size * 1.5f);
+		res.sourceCodeBufferCapacity = file.data_size + 1;// (size_t)((float)file.data_size * 1.5f);
 		res.sourceCodeBufferLength = file.data_size;
 		res.sourceCodeBuffer = g_memory_allocate(res.sourceCodeBufferCapacity);
 
 		g_memory_copyMem(res.sourceCodeBuffer, file.data, file.data_size);
 		res.sourceCodeBuffer[file.data_size] = '\0';
 		res.syntaxTree = generateSyntaxTree(res.sourceCodeBuffer, res.sourceCodeBufferLength);
-		res.codeHighlights = getAllCaptures(res.syntaxTree);
+		res.codeHighlights = getAllCaptures(res.syntaxTree, false, res.sourceCodeBuffer);
 		emu_file_free(&file);
 	}
 	else
@@ -146,7 +150,12 @@ static TSTree* generateSyntaxTree(const char* sourceCodeBuffer, size_t sourceCod
 	return emu_SyntaxHighlighter_highlightSource(sourceCodeBuffer, (uint32)sourceCodeBufferLength);
 }
 
-static HighlightedCode* getAllCaptures(TSTree* syntaxTree)
+static TSTree* updateSyntaxTree(CodeEditorPanel* panel, const char* sourceCodeBuffer, size_t sourceCodeBufferLength)
+{
+	return emu_SyntaxHighlighter_editHighlights(panel->syntaxTree, sourceCodeBuffer, (uint32)sourceCodeBufferLength);
+}
+
+static HighlightedCode* getAllCaptures(TSTree* syntaxTree, bool printCaptures, const char* source)
 {
 	static const char* asmHighlightsQuery = "(opcode) @function.builtin\
 		(num_literal) @constant.numeric\
@@ -238,6 +247,9 @@ static HighlightedCode* getAllCaptures(TSTree* syntaxTree)
 
 		// 5. Update the tracking boundary to the end of this non-overlapping node
 		last_end_byte = end;
+
+		if (printCaptures) 
+			g_logger_info("Capture<@%s>: %.*s", capture_name, end - start, source + start);
 	}
 
 	ts_query_cursor_delete(cursor);
@@ -246,19 +258,58 @@ static HighlightedCode* getAllCaptures(TSTree* syntaxTree)
 	return codeHighlights;
 }
 
+static int handleTextResizing(CodeEditorPanel* panel, ImGuiInputTextCallbackData* data)
+{
+	if ((float)panel->sourceCodeBufferLength > (float)panel->sourceCodeBufferCapacity * 0.99f)
+	{
+		// If we exceed 99% of capacity, grow by 1.5
+		panel->sourceCodeBufferCapacity = (size_t)((float)panel->sourceCodeBufferCapacity * 1.5f);
+		panel->sourceCodeBuffer = g_memory_realloc(panel->sourceCodeBuffer, panel->sourceCodeBufferCapacity);
+
+		data->Buf = panel->sourceCodeBuffer;
+		data->BufSize = (int)panel->sourceCodeBufferCapacity;
+	}
+	return 0;
+}
+
+static void handleTextEdit(CodeEditorPanel* panel)
+{
+	// TODO: Disgustingly in-efficient. Fix this at some point...
+	ts_tree_delete(panel->syntaxTree);
+	panel->syntaxTree = generateSyntaxTree(panel->sourceCodeBuffer, panel->sourceCodeBufferLength);
+	stbds_arrfree(panel->codeHighlights);
+	panel->codeHighlights = getAllCaptures(panel->syntaxTree, false, panel->sourceCodeBuffer);
+}
+
+static int inputTextCallback(ImGuiInputTextCallbackData* data)
+{
+	CodeEditorPanel* panel = (CodeEditorPanel*)data->UserData;
+
+	switch (data->EventFlag)
+	{
+	case ImGuiInputTextFlags_CallbackResize:
+		return handleTextResizing(panel, data);
+	}
+
+	return 0;
+}
+
 static void renderCodePanel(CodeEditorPanel* panel)
 {
 	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
 
 	// 1. Make the text color transparent so the cursor and box background still render normally
-	int flags = ImGuiInputTextFlags_AllowTabInput;
+	int flags = ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackResize;
 	ImVec2 availableSize = ImGui_GetContentRegionAvail();
 	emu_cimgui_pushFont(CImGui_FontType_Mono);
 
 	ImGui_PushStyleColor(ImGuiCol_Text, IM_COL32_BLACK_TRANS);
 	ImGui_PushStyleColor(ImGuiCol_FrameBg, ImGui_ColorConvertFloat4ToU32(theme->bgColor));
 	ImGui_PushStyleColor(ImGuiCol_InputTextCursor, ImGui_ColorConvertFloat4ToU32(theme->cursorColor));
-	ImGui_InputTextMultilineEx("##Source_Code", panel->sourceCodeBuffer, panel->sourceCodeBufferCapacity, availableSize, flags, NULL, NULL);
+	if (ImGui_InputTextMultilineEx("##Source_Code", panel->sourceCodeBuffer, panel->sourceCodeBufferCapacity, availableSize, flags, inputTextCallback, (void*)panel))
+	{
+		handleTextEdit(panel);
+	}
 	ImGuiContext* g = ImGui_GetCurrentContext();
 	const char* child_window_name = NULL;
 	cImFormatStringToTempBuffer(&child_window_name, NULL, "%s/%s_%08X", g->CurrentWindow->Name, "##Source_Code", ImGui_GetID("##Source_Code"));
