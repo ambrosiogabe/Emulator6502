@@ -4,10 +4,11 @@
 
 typedef struct emu_sdl_wrapper emu_sdl_wrapper;
 typedef struct ImGuiContext_t ImGuiContext;
+typedef struct emu_app emu_app;
 
 ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl);
 SDL_AppResult emu_cimgui_handleEvent(SDL_Event* event);
-void emu_cimgui_tickBegin(emu_sdl_wrapper* sdl);
+void emu_cimgui_tickBegin(emu_app* app);
 SDL_AppResult emu_cimgui_tickEnd(emu_sdl_wrapper* sdl);
 void emu_cimgui_free(ImGuiContext* ctx);
 

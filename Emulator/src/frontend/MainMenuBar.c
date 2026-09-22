@@ -2,10 +2,13 @@
 #include "frontend/SyntaxHighlighter.h"
 #include "frontend/CodeEditor.h"
 #include "utils/FileHelper.h"
+#include "Emulator/Assembler.h"
+#include "Emulator/VirtualMachine.h"
+#include "Emulator/App.h"
 
 #include <dcimgui.h>
 
-void emu_MainMenuBar_tick()
+void emu_MainMenuBar_tick(emu_app* app)
 {
 	if (ImGui_BeginMainMenuBar())
 	{
@@ -19,6 +22,22 @@ void emu_MainMenuBar_tick()
 				if (filename != NULL)
 				{
 					emu_CodeEditor_openFile(filename);
+
+					emu_file sourceCodeFile = { 0 };
+					emu_file_read(filename, &sourceCodeFile);
+
+					emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, filename, UINT16_MAX);
+					//emu_vm_printOpcodes(program.program, program.size);
+
+					emu_vm_loadProgram(app->vm, &program);
+					emu_vm_resetMachine(app->vm);
+
+					// TODO: Figure out where to store program
+					// emu_assembler_program* res = g_memory_allocate(sizeof(emu_assembler_program));
+					// g_memory_copyMem(res, &program, sizeof(emu_assembler_program));
+					emu_assembler_free(&program);
+
+					emu_file_free(&sourceCodeFile);
 				}
 			}
 			if (ImGui_MenuItemEx("Save", "Ctrl+S", false, true))

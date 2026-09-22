@@ -39,6 +39,7 @@ emu_sdl_wrapper* emu_frontend_initAndCreateWindow()
 	}
 
 	SDL_SetWindowPosition(wrapper->window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
+	SDL_MaximizeWindow(wrapper->window);
 	SDL_ShowWindow(wrapper->window);
 
 	return wrapper;

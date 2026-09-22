@@ -113,7 +113,7 @@ SDL_AppResult emu_cimgui_handleEvent(SDL_Event* event)
 	return SDL_APP_CONTINUE;
 }
 
-void emu_cimgui_tickBegin(emu_sdl_wrapper* sdl)
+void emu_cimgui_tickBegin(emu_app* app)
 {
 	// Start the Dear ImGui frame
 	cImGui_ImplSDLRenderer3_NewFrame();
@@ -138,8 +138,8 @@ void emu_cimgui_tickBegin(emu_sdl_wrapper* sdl)
 
 			// Split the dockspace node into different regions (e.g., Left panel for controls)
 			ImGuiID dock_main_id = dockspace_id;
-			ImGuiID dock_left_id = ImGui_DockBuilderSplitNode(dock_main_id, ImGuiDir_Left, 0.25f, NULL, &dock_main_id);
-			ImGuiID dock_down_id = ImGui_DockBuilderSplitNode(dock_main_id, ImGuiDir_Down, 0.30f, NULL, &dock_main_id);
+			ImGuiID dock_left_id = ImGui_DockBuilderSplitNode(dock_main_id, ImGuiDir_Left, 0.35f, NULL, &dock_main_id);
+			ImGuiID dock_down_id = ImGui_DockBuilderSplitNode(dock_main_id, ImGuiDir_Down, 0.25f, NULL, &dock_main_id);
 
 			// Assign specific window names to specific dock IDs
 			ImGui_DockBuilderDockWindow("Debug", dock_left_id);
@@ -154,10 +154,10 @@ void emu_cimgui_tickBegin(emu_sdl_wrapper* sdl)
 	}
 
 	// Draw windows of the app
-	emu_MainMenuBar_tick();
+	emu_MainMenuBar_tick(app);
 	emu_CodeEditor_tick();
 	emu_ConsoleOutput_tick();
-	emu_EmulatorDebug_tick();
+	emu_EmulatorDebug_tick(app);
 	emu_EmulatorViewport_tick();
 
 	if (show_demo_window)

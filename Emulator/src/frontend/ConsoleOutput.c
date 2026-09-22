@@ -45,8 +45,18 @@ void emu_ConsoleOutput_free()
 
 void emu_ConsoleOutput_tick()
 {
-	if (ImGui_Begin("Console Output", NULL, 0))
+	if (ImGui_Begin("Console Output", NULL, ImGuiWindowFlags_MenuBar))
 	{
+		if (ImGui_BeginMenuBar())
+		{
+			if (ImGui_MenuItem("Clear"))
+			{
+				emu_ConsoleOutput_free();
+			}
+
+			ImGui_EndMenuBar();
+		}
+
 		for (int i = 0; i < stbds_arrlen(messages); i++)
 		{
 			const char* levelMsg =

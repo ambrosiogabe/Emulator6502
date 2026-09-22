@@ -4,6 +4,7 @@
 #include "Emulator/MemoryMap.h"
 #include "utils/FileHelper.h"
 #include "utils/SafeVendor.h"
+#include "frontend/ConsoleOutput.h"
 
 #include <stb/stb_ds.h>
 #include <stdio.h>
@@ -1319,7 +1320,7 @@ static void emu_logError(emu_Assembler* assembler, emu_Token const* token, const
 		""
 	);
 
-	printf("%s\n", fullErrorBuffer);
+	emu_ConsoleOutput_error("%s\n", fullErrorBuffer);
 }
 
 static emu_Token const* getNext(emu_Assembler* assembler)

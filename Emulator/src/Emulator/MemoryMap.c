@@ -23,6 +23,8 @@ emu_MemoryMap emu_mmap_newNesMap(size_t physicalMemorySize)
 },
 	};
 
+	g_memory_zeroMem(res.physicalMemory, res.physicalMemorySize);
+
 	return res;
 }
 

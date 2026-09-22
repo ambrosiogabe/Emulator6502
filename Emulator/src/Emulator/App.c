@@ -211,7 +211,7 @@ SDL_AppResult emu_app_tick(emu_app* app)
 		return res;
 	}
 
-	emu_cimgui_tickBegin(app->sdl);
+	emu_cimgui_tickBegin(app);
 	res = emu_cimgui_tickEnd(app->sdl);
 	return res;
 }
