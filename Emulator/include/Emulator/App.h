@@ -8,13 +8,17 @@ typedef struct emu_virtualMachine emu_virtualMachine;
 typedef struct emu_assembler_program emu_assembler_program;
 typedef struct emu_sdl_wrapper emu_sdl_wrapper;
 typedef struct ImGuiContext_t ImGuiContext;
+typedef struct emu_assembler_program emu_assembler_program;
 
 typedef struct emu_app
 {
+	emu_assembler_program* program;
 	emu_debugger* debugger;
 	emu_virtualMachine* vm;
 	emu_sdl_wrapper* sdl;
 	ImGuiContext* imgui;
+
+	bool isDebugging;
 } emu_app;
 
 emu_app* emu_app_init(bool initializeGuiLayers);
@@ -22,7 +26,7 @@ emu_app* emu_app_init(bool initializeGuiLayers);
 void emu_app_pauseApp();
 void emu_app_resumeApp();
 
-emu_assembler_program* emu_app_loadProgram(emu_app* app);
+void emu_app_loadProgram(emu_app* app, const char* fullFilepath);
 
 SDL_AppResult emu_app_handleEvent(emu_app* app, SDL_Event* event);
 

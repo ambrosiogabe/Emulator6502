@@ -255,6 +255,8 @@ emu_vmError emu_vm_tick(emu_virtualMachine* vm);
 void emu_vm_free(emu_virtualMachine* vm);
 
 const char* emu_vm_instructionToString(emu_vmInstruction instruction);
+const char* emu_vm_disassembleInstruction(emu_vmInstruction instruction);
+uint8 emu_vm_instructionNumArgs(emu_vmInstruction instruction);
 
 uint8 emu_vm_getStatus(emu_virtualMachine* vm, emu_vmStatus status);
 void emu_vm_setStatus(emu_virtualMachine* vm, emu_vmStatus status);

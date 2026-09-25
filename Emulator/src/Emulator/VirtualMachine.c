@@ -83,7 +83,7 @@ break
 #define BRANCH_ON_STATUS_SET(caseName, status) BRANCH_ON_STATUS_SET_BASE(caseName, status, !!)
 #define BRANCH_ON_NOT_STATUS_SET(caseName, status) BRANCH_ON_STATUS_SET_BASE(caseName, status, !)
 
-const char* emu_vmInstructions[EMU_MAX_INSTRUCTION_OPCODE] = { 0 };
+const char* emu_vmInstructions[EMU_MAX_INSTRUCTION_OPCODE + 1] = { 0 };
 
 void emu_vm_initDebug()
 {
@@ -116,14 +116,14 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_EOR_ABX] = "EOR_ABX";
 	emu_vmInstructions[emu_vmInstruction_EOR_ABY] = "EOR_ABY";
 	// -- AND instructions --
-	emu_vmInstructions[emu_vmInstruction_AND_IMM] = "IMM";
-	emu_vmInstructions[emu_vmInstruction_AND_ZP] = "ZP";
-	emu_vmInstructions[emu_vmInstruction_AND_ZPX] = "ZPX";
-	emu_vmInstructions[emu_vmInstruction_AND_IZX] = "IZX";
-	emu_vmInstructions[emu_vmInstruction_AND_IZY] = "IZY";
-	emu_vmInstructions[emu_vmInstruction_AND_ABS] = "ABS";
-	emu_vmInstructions[emu_vmInstruction_AND_ABX] = "ABX";
-	emu_vmInstructions[emu_vmInstruction_AND_ABY] = "ABY";
+	emu_vmInstructions[emu_vmInstruction_AND_IMM] = "AND_IMM";
+	emu_vmInstructions[emu_vmInstruction_AND_ZP] = "AND_ZP";
+	emu_vmInstructions[emu_vmInstruction_AND_ZPX] = "AND_ZPX";
+	emu_vmInstructions[emu_vmInstruction_AND_IZX] = "AND_IZX";
+	emu_vmInstructions[emu_vmInstruction_AND_IZY] = "AND_IZY";
+	emu_vmInstructions[emu_vmInstruction_AND_ABS] = "AND_ABS";
+	emu_vmInstructions[emu_vmInstruction_AND_ABX] = "AND_ABX";
+	emu_vmInstructions[emu_vmInstruction_AND_ABY] = "AND_ABY";
 	// --  ADC instructions --
 	emu_vmInstructions[emu_vmInstruction_ADC_IZX] = "ADC_IZX";
 	emu_vmInstructions[emu_vmInstruction_ADC_ZP] = "ADC_ZP";
@@ -445,6 +445,80 @@ void emu_vm_free(emu_virtualMachine* vm)
 const char* emu_vm_instructionToString(emu_vmInstruction instruction)
 {
 	return emu_vmInstructions[instruction];
+}
+
+const char* emu_vm_disassembleInstruction(emu_vmInstruction instruction)
+{
+	static char instructionTxt[4];
+	const char* strToCopy = emu_vmInstructions[instruction];
+	g_memory_copyMem(instructionTxt, (char*)strToCopy, 3);
+	instructionTxt[3] = '\0';
+	return instructionTxt;
+}
+
+uint8 emu_vm_instructionNumArgs(emu_vmInstruction instruction)
+{
+	if (instruction >= EMU_MAX_INSTRUCTION_OPCODE)
+	{
+		return 0;
+	}
+
+	char instructionType[5];
+	const char* fullInstructionTxt = emu_vmInstructions[instruction];
+	// Copy last 3 chars of instruction into instructionType
+	size_t fullInstructionTxtLen = strlen(fullInstructionTxt);
+	// Get pointer to _ in instruction
+	const char* underscorePtr = fullInstructionTxt + fullInstructionTxtLen;
+	for (int i = (int)fullInstructionTxtLen; i >= 0; i--)
+	{
+		if (fullInstructionTxt[i] == '_')
+		{
+			break;
+		}
+		underscorePtr = fullInstructionTxt + i;
+	}
+	
+	int suffixLength = (int)(fullInstructionTxt + fullInstructionTxtLen - underscorePtr);
+	if (suffixLength >= 4)
+	{
+		suffixLength = 3;
+	}
+	g_logger_assert(suffixLength < 4, "Invalid");
+	g_memory_copyMem(instructionType, (char*)underscorePtr, suffixLength);
+	instructionType[suffixLength] = '\0';
+
+	// Now instruction type should be ZP, ABS, ABX, ...
+	if (strcmp(instructionType, "ZP") == 0)
+	{
+		return 1;
+	}
+
+	if (strcmp(instructionType, "IMP") == 0)
+	{
+		return 0;
+	}
+
+	if (strcmp(instructionType, "ABS") == 0)
+	{
+		return 2;
+	}
+
+	if (strcmp(instructionType, "ABX") == 0)
+	{
+		return 2;
+	}
+
+	if (strcmp(instructionType, "ABY") == 0)
+	{
+		return 2;
+	}
+
+	if (strcmp(instructionType, "IMM") == 0)
+	{
+		return 1;
+	}
+
+	return 0;
 }
 
 uint8 emu_vm_getStatus(emu_virtualMachine* vm, emu_vmStatus status)

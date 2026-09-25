@@ -209,3 +209,25 @@ void emu_cimgui_popFont()
 {
 	ImGui_PopFont();
 }
+
+void emu_cimgui_focusWindow(CImGui_WindowType windowType)
+{
+	switch (windowType)
+	{
+	case CImGui_WindowType_Demo:
+		ImGui_SetWindowFocusStr("Dear ImGui Demo");
+		break;
+	case CImGui_WindowType_EmulatorDebug:
+		ImGui_SetWindowFocusStr("Debug");
+		break;
+	case CImGui_WindowType_CodeEditor:
+		ImGui_SetWindowFocusStr("Code Editor");
+		break;
+	case CImGui_WindowType_ConsoleOutput:
+		ImGui_SetWindowFocusStr("Console Output");
+		break;
+	case CImGui_WindowType_Viewport:
+		ImGui_SetWindowFocusStr("Viewport");
+		break;
+	}
+}

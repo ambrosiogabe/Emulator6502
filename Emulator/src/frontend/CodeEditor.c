@@ -2,6 +2,7 @@
 #include "frontend/ImGuiLayer.h"
 #include "frontend/SyntaxHighlighter.h"
 #include "Emulator/App.h"
+#include "Emulator/Assembler.h"
 #include "utils/FileHelper.h"
 #include "utils/SafeVendor.h"
 
@@ -26,6 +27,8 @@ typedef struct CodeEditorPanel
 	char* filename;
 	size_t filenameLength;
 	bool open;
+
+	
 } CodeEditorPanel;
 
 static CodeEditorPanel* panels;
@@ -56,7 +59,7 @@ void emu_CodeEditor_free()
 	}
 }
 
-void emu_CodeEditor_openFile(const char* fullFilepath)
+void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 {
 	CodeEditorPanel res = (CodeEditorPanel){ 0 };
 
@@ -82,7 +85,7 @@ void emu_CodeEditor_openFile(const char* fullFilepath)
 	if (emu_file_read(fullFilepath, &file) == emu_fileResult_Success)
 	{
 		// Multiply by 1.5 to get some buffer room
-		res.sourceCodeBufferCapacity = file.data_size + 1;// (size_t)((float)file.data_size * 1.5f);
+		res.sourceCodeBufferCapacity = (size_t)((float)file.data_size * 1.5f);
 		res.sourceCodeBufferLength = file.data_size;
 		res.sourceCodeBuffer = g_memory_allocate(res.sourceCodeBufferCapacity);
 
@@ -91,6 +94,8 @@ void emu_CodeEditor_openFile(const char* fullFilepath)
 		res.syntaxTree = generateSyntaxTree(res.sourceCodeBuffer, res.sourceCodeBufferLength);
 		res.codeHighlights = getAllCaptures(res.syntaxTree, false, res.sourceCodeBuffer);
 		emu_file_free(&file);
+
+		emu_app_loadProgram(app, fullFilepath);
 	}
 	else
 	{
@@ -112,8 +117,18 @@ void emu_CodeEditor_tick()
 	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
 
 	ImGui_PushStyleColor(ImGuiCol_WindowBg, ImGui_ColorConvertFloat4ToU32(theme->bgColor));
-	if (ImGui_Begin("Code Editor", NULL, 0))
+	if (ImGui_Begin("Code Editor", NULL, ImGuiWindowFlags_MenuBar))
 	{
+		if (ImGui_BeginMenuBar())
+		{
+			if (ImGui_MenuItem("Debug"))
+			{
+				emu_cimgui_focusWindow(CImGui_WindowType_EmulatorDebug);
+			}
+
+			ImGui_EndMenuBar();
+		}
+
 		static ImGuiTabBarFlags tab_bar_flags = ImGuiTabBarFlags_Reorderable | ImGuiTabBarFlags_AutoSelectNewTabs;
 		if (ImGui_BeginTabBar("MyTabBar", tab_bar_flags))
 		{

@@ -19,7 +19,6 @@ typedef struct LogMessage
 	int messageLength;
 	char* timestampStr;
 	emu_ConsoleLogLevel level;
-
 } LogMessage;
 
 static LogMessage* messages = NULL;

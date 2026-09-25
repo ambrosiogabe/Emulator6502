@@ -12,6 +12,15 @@ void emu_cimgui_tickBegin(emu_app* app);
 SDL_AppResult emu_cimgui_tickEnd(emu_sdl_wrapper* sdl);
 void emu_cimgui_free(ImGuiContext* ctx);
 
+typedef enum CImGui_WindowType
+{
+	CImGui_WindowType_Demo = 0,
+	CImGui_WindowType_EmulatorDebug,
+	CImGui_WindowType_CodeEditor,
+	CImGui_WindowType_ConsoleOutput,
+	CImGui_WindowType_Viewport,
+} CImGui_WindowType;
+
 typedef enum CImGui_FontType
 {
 	CImGui_FontType_Default = 0,
@@ -20,5 +29,7 @@ typedef enum CImGui_FontType
 
 void emu_cimgui_pushFont(CImGui_FontType fontType);
 void emu_cimgui_popFont();
+
+void emu_cimgui_focusWindow(CImGui_WindowType windowType);
 
 #endif

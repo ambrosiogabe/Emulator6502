@@ -21,23 +21,7 @@ void emu_MainMenuBar_tick(emu_app* app)
 				const char* filename = emu_file_openFileDialog(numFileFilters, fileFilters);
 				if (filename != NULL)
 				{
-					emu_CodeEditor_openFile(filename);
-
-					emu_file sourceCodeFile = { 0 };
-					emu_file_read(filename, &sourceCodeFile);
-
-					emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, filename, UINT16_MAX);
-					//emu_vm_printOpcodes(program.program, program.size);
-
-					emu_vm_loadProgram(app->vm, &program);
-					emu_vm_resetMachine(app->vm);
-
-					// TODO: Figure out where to store program
-					// emu_assembler_program* res = g_memory_allocate(sizeof(emu_assembler_program));
-					// g_memory_copyMem(res, &program, sizeof(emu_assembler_program));
-					emu_assembler_free(&program);
-
-					emu_file_free(&sourceCodeFile);
+					emu_CodeEditor_openFile(app, filename);
 				}
 			}
 			if (ImGui_MenuItemEx("Save", "Ctrl+S", false, true))

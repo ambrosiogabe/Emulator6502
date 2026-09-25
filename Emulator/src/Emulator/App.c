@@ -7,6 +7,8 @@
 #include "frontend/SdlWrapper.h"
 #include "frontend/ImGuiLayer.h"
 #include "frontend/SyntaxHighlighter.h"
+#include "frontend/ConsoleOutput.h"
+#include "frontend/EmulatorDebug.h"
 
 #include <stdio.h>
 #include <conio.h>
@@ -16,45 +18,6 @@
 #include <string.h>
 
 static bool isAppPaused = false;
-
-// Declare the `tree_sitter_asm6502` function, which is
-// implemented by the `tree-sitter-asm6502` library.
-const TSLanguage* tree_sitter_asm6502(void);
-
-int testTreeSitter(char* source_code)
-{
-	// Create a parser.
-	TSParser* parser = ts_parser_new();
-
-	// Set the parser's language (JSON in this case).
-	ts_parser_set_language(parser, tree_sitter_asm6502());
-
-	// Build a syntax tree based on source code stored in a string.
-	TSTree* tree = ts_parser_parse_string(
-		parser,
-		NULL,
-		source_code,
-		(uint32)strlen(source_code)
-	);
-
-	// Get the root node of the syntax tree.
-	TSNode root_node = ts_tree_root_node(tree);
-
-	// Get some child nodes.
-	//TSNode array_node = ts_node_named_child(root_node, 0);
-	//TSNode number_node = ts_node_named_child(array_node, 0);
-
-	// Print the syntax tree as an S-expression.
-	char* string = ts_node_string(root_node);
-	printf("Syntax tree: %s\n", string);
-
-	// Free all of the heap-allocated memory.
-	free(string);
-	ts_tree_delete(tree);
-	ts_parser_delete(parser);
-	return 0;
-}
-
 
 static void flushScanf()
 {
@@ -121,27 +84,33 @@ void emu_app_runTuiMode(emu_app* app, emu_assembler_program* program)
 	g_memory_free(program);
 }
 
-emu_assembler_program* emu_app_loadProgram(emu_app* app)
+void emu_app_loadProgram(emu_app* app, const char* fullFilepath)
 {
-	// For now, let's just read a file and parse it?
-	const char* programFile = "G:\\dev\\6502\\testProject\\tutorial\\05_subroutines.s";
-	const char* outputFile = "G:\\dev\\6502\\testProject\\tutorial\\05_subroutines.bin";
+	if (app->program)
+	{
+		emu_assembler_free(app->program);
+		g_memory_free(app->program);
+		app->program = NULL;
+	}
 
-	emu_file sourceCodeFile = { 0 };
-	emu_file_read(programFile, &sourceCodeFile);
-	printf("%s\n", sourceCodeFile.data);
-	testTreeSitter(sourceCodeFile.data);
+	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, fullFilepath, UINT16_MAX);
 
-	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, programFile, UINT16_MAX);
-	emu_file_write(outputFile, program.data, program.dataSize);
-	//emu_vm_printOpcodes(program.program, program.size);
+	emu_vmError err = emu_vm_loadProgram(app->vm, &program);
+	if (err != emu_vmError_None)
+	{
+		emu_ConsoleOutput_error("VM is not valid. Cannot debug.", fullFilepath);
+		return;
+	}
 
-	emu_vm_loadProgram(app->vm, &program);
 	emu_vm_resetMachine(app->vm);
 
 	emu_assembler_program* res = g_memory_allocate(sizeof(emu_assembler_program));
 	g_memory_copyMem(res, &program, sizeof(emu_assembler_program));
-	return res;
+	app->program = res;
+	app->isDebugging = true;
+
+	emu_vm_loadProgram(app->vm, res);
+	emu_EmulatorDebug_beginDebugging(app);
 }
 
 emu_app* emu_app_init(bool initializeGuiLayers)
@@ -159,6 +128,8 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 		.debugger = debugger,
 		.vm = vm,
 		.sdl = NULL,
+		.program = NULL,
+		.isDebugging = true,
 	};
 
 	if (initializeGuiLayers) 
@@ -211,6 +182,14 @@ SDL_AppResult emu_app_tick(emu_app* app)
 		return res;
 	}
 
+	if (!app->isDebugging && app->vm)
+	{
+		if (emu_vm_tick(app->vm) != emu_vmError_None)
+		{
+			app->isDebugging = true;
+		}
+	}
+
 	emu_cimgui_tickBegin(app);
 	res = emu_cimgui_tickEnd(app->sdl);
 	return res;
@@ -223,6 +202,12 @@ void emu_app_free(emu_app* app)
 		emu_cimgui_free(app->imgui);
 		emu_SyntaxHighlighter_free();
 		emu_frontend_free(app->sdl);
+
+		if (app->program)
+		{
+			emu_assembler_free(app->program);
+			g_memory_free(app->program);
+		}
 
 		if (app->debugger)
 		{
