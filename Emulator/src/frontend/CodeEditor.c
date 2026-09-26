@@ -28,6 +28,7 @@ typedef struct CodeEditorPanel
 	size_t filenameLength;
 	char* fullFilepath;
 	size_t fullFilepathLength;
+	int* breakpoints;
 	bool open;
 
 	int totalNumLines;
@@ -350,7 +351,10 @@ static void renderCodePanel(CodeEditorPanel* panel)
 	ImVec4 lineNumberColor = emu_SyntaxHighlighter_getColor(emu_SyntaxHighlighter_getTheme(), "ui.linenr");
 	ImVec4 selectedLineNumberColor = emu_SyntaxHighlighter_getColor(emu_SyntaxHighlighter_getTheme(), "ui.linenr.selected");
 	ImVec4 textFocusColor = emu_SyntaxHighlighter_getColor(emu_SyntaxHighlighter_getTheme(), "ui.text.focus");
+	ImVec4 errorColor = emu_SyntaxHighlighter_getColor(emu_SyntaxHighlighter_getTheme(), "error");
 	uint32 textFocusColorU32 = ImGui_ColorConvertFloat4ToU32(textFocusColor);
+	uint32 errorColorU32 = ImGui_ColorConvertFloat4ToU32(errorColor);
+	uint32 selectedLineNumberColorU32 = ImGui_ColorConvertFloat4ToU32(selectedLineNumberColor);
 
 	float lineHeight = ImGui_GetTextLineHeight();
 	float yFramePadding = ImGui_GetStyle()->FramePadding.y;
@@ -360,9 +364,81 @@ static void renderCodePanel(CodeEditorPanel* panel)
 	static int lineNumberStart = 0;
 	static int numberOfLinesVisible = 0;
 	static float gutterScrollOffset = 0.0f;
-	// Leave room for at least 5 digits
+	float gutterWidth = ImGui_GetFontSize();
 	if (ImGui_BeginChild(
-		"##CodeEditor_Gutter",
+		"##CodeEditor_Gutter_Breakpoints",
+		(ImVec2)
+	{
+		0
+	},
+		ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX,
+		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse
+	))
+	{
+		ImGui_SetCursorPosY(gutterScrollOffset);
+		float cursorY = gutterScrollOffset;
+		for (int line = lineNumberStart; line <= lineNumberStart + numberOfLinesVisible + 1; line++)
+		{
+			if (line != 0 && line <= panel->totalNumLines)
+			{
+				ImGui_SetCursorPosY(cursorY);
+				const ImVec2 p1 = ImGui_GetCursorScreenPos();
+				ImGui_Dummy((ImVec2) { .x = gutterWidth, .y = lineHeight });
+				if (ImGui_IsItemHovered(0))
+				{
+					ImVec2 circlePos = {
+						.x = p1.x + lineHeight / 2.0f,
+						.y = p1.y + lineHeight / 2.0f
+					};
+					ImDrawList_AddCircleFilled(ImGui_GetWindowDrawList(), circlePos, lineHeight / 2.0f, selectedLineNumberColorU32, 0);
+				}
+
+				if (ImGui_IsItemClicked())
+				{
+					bool deleted = false;
+					for (int i = 0; i < stbds_arrlen(panel->breakpoints); i++)
+					{
+						if (panel->breakpoints[i] == line)
+						{
+							stbds_arrdel(panel->breakpoints, i);
+							deleted = true;
+							break;
+						}
+					}
+
+					if (!deleted)
+					{
+						stbds_arrpush(panels->breakpoints, line);
+					}
+				}
+			}
+
+			cursorY += lineHeight;
+		}
+
+		for (int i = 0; i < stbds_arrlen(panel->breakpoints); i++)
+		{
+			int breakpoint = panel->breakpoints[i];
+			if (breakpoint >= lineNumberStart && breakpoint <= lineNumberStart + numberOfLinesVisible + 1)
+			{
+				ImGui_SetCursorPosY(gutterScrollOffset + lineHeight * (breakpoint - lineNumberStart));
+				const ImVec2 p1 = ImGui_GetCursorScreenPos();
+				ImVec2 circlePos = {
+							.x = p1.x + lineHeight / 2.0f,
+							.y = p1.y + lineHeight / 2.0f
+				};
+				ImDrawList_AddCircleFilled(ImGui_GetWindowDrawList(), circlePos, lineHeight / 2.0f, errorColorU32, 0);
+			}
+		}
+
+		ImGui_EndChild();
+	}
+
+	ImGui_SameLineEx(0.0f, 0.0f);
+
+	// Leave room for number of digits needed
+	if (ImGui_BeginChild(
+		"##CodeEditor_Gutter_LineNumbers",
 		(ImVec2)
 	{
 		0
@@ -371,20 +447,21 @@ static void renderCodePanel(CodeEditorPanel* panel)
 		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoInputs
 	))
 	{
+		int numDigitsNeeded = (int)log10((double)panel->totalNumLines) + 1;
 		ImGui_SetCursorPosY(gutterScrollOffset);
 		float cursorY = gutterScrollOffset;
-		for (int line = lineNumberStart; line <= lineNumberStart + numberOfLinesVisible; line++)
+		for (int line = lineNumberStart; line <= lineNumberStart + numberOfLinesVisible + 1; line++)
 		{
 			if (line != 0 && line <= panel->totalNumLines)
 			{
 				ImGui_SetCursorPosY(cursorY);
 				if (line == panel->selectedLine)
 				{
-					ImGui_TextColored(selectedLineNumberColor, "%5d", line);
+					ImGui_TextColored(selectedLineNumberColor, "%*d", numDigitsNeeded, line);
 				}
 				else
 				{
-					ImGui_TextColored(lineNumberColor, "%5d", line);
+					ImGui_TextColored(lineNumberColor, "%*d", numDigitsNeeded, line);
 				}
 			}
 
@@ -506,6 +583,11 @@ static void freePanel(CodeEditorPanel* panel)
 	if (panel->codeHighlights)
 	{
 		stbds_arrfree(panel->codeHighlights);
+	}
+
+	if (panel->breakpoints)
+	{
+		stbds_arrfree(panel->breakpoints);
 	}
 
 	if (panel->filename)
