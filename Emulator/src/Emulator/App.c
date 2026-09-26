@@ -9,15 +9,20 @@
 #include "frontend/SyntaxHighlighter.h"
 #include "frontend/ConsoleOutput.h"
 #include "frontend/EmulatorDebug.h"
+#include "frontend/CodeEditor.h"
 
 #include <stdio.h>
 #include <conio.h>
 
-#include <tree_sitter/api.h>
 #include <assert.h>
 #include <string.h>
+#include <cyaml.h>
+
+static void saveAppMetadata(const char* lastLoadedProject);
+static void loadAppMetadata(emu_app* app);
 
 static bool isAppPaused = false;
+static const char* appLoadedProjectFile = "./appMetadata.yml";
 
 static void flushScanf()
 {
@@ -132,12 +137,13 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 		.isDebugging = true,
 	};
 
-	if (initializeGuiLayers) 
+	if (initializeGuiLayers)
 	{
 		res->sdl = emu_frontend_initAndCreateWindow();
 		if (res->sdl)
 		{
 			res->imgui = emu_cimgui_init(res->sdl);
+			loadAppMetadata(res);
 		}
 	}
 
@@ -199,6 +205,9 @@ void emu_app_free(emu_app* app)
 {
 	if (app)
 	{
+		// Save project on exit
+		emu_app_saveProject(app, app->appLoadedProjectFile);
+
 		emu_cimgui_free(app->imgui);
 		emu_SyntaxHighlighter_free();
 		emu_frontend_free(app->sdl);
@@ -223,6 +232,116 @@ void emu_app_free(emu_app* app)
 			app->vm = NULL;
 		}
 
+		if (app->appLoadedProjectFile)
+		{
+			g_memory_free(app->appLoadedProjectFile);
+		}
+
 		g_memory_free(app);
+	}
+}
+
+void emu_app_saveProject(emu_app* app, const char* filename)
+{
+	cyaml_doc_t* doc = cyaml_doc_new();
+	cyaml_node_t* root = cyaml_new_map(doc);
+	cyaml_set_root(doc, root);
+
+	cyaml_node_t* openFiles = cyaml_new_seq(doc);
+	size_t numOpenFiles = emu_CodeEditor_getNumOpenFiles();
+	for (size_t i = 0; i < numOpenFiles; i++)
+	{
+		cyaml_seq_push(openFiles, cyaml_new_cstr(doc, emu_CodeEditor_getFullFilepath(i)));
+	}
+	cyaml_map_set(doc, root, "openFiles", openFiles);
+
+	char* output = cyaml_emit(doc, NULL, NULL);
+	emu_file_write(filename, (uint8*)output, strlen(output));
+	free(output);
+	cyaml_free(doc);
+
+	saveAppMetadata(filename);
+}
+
+void emu_app_loadProject(emu_app* app, const char* filename)
+{
+	emu_file file;
+	if (emu_file_read(filename, &file) == emu_fileResult_Success)
+	{
+		cyaml_error_t err;
+		cyaml_doc_t* doc = cyaml_parse(file.data, file.data_size, NULL, &err);
+
+		if (!doc)
+		{
+			g_logger_error("Parse error at line %u: %s", err.span.start_line, err.msg);
+			return;
+		}
+
+		cyaml_node_t* root = cyaml_root(doc);
+		cyaml_node_t* openFiles = cyaml_get(doc, root, "openFiles");
+		uint32 numOpenFiles = cyaml_seq_len(openFiles);
+		for (uint32 i = 0; i < numOpenFiles; i++)
+		{
+			cyaml_node_t* fileToLoad = cyaml_seq_get(openFiles, i);
+			char* fileToLoadStr = cyaml_scalar_str(doc, fileToLoad);
+			emu_CodeEditor_openFile(app, fileToLoadStr);
+			free(fileToLoadStr);
+		}
+
+		cyaml_free(doc);
+		emu_file_free(&file);
+
+		size_t filenameLength = strlen(filename);
+		app->appLoadedProjectFile = g_memory_allocate(filenameLength + 1);
+		g_memory_copyMem(app->appLoadedProjectFile, (char*)filename, filenameLength);
+		app->appLoadedProjectFile[filenameLength] = '\0';
+	}
+	else
+	{
+		g_logger_error("Cannot load project '%s'.", filename);
+	}
+}
+
+// ------------------------- Internal Definitions -------------------------
+static void saveAppMetadata(const char* lastLoadedProject)
+{
+	cyaml_doc_t* doc = cyaml_doc_new();
+	cyaml_node_t* root = cyaml_new_map(doc);
+	cyaml_set_root(doc, root);
+
+	cyaml_map_set(doc, root, "lastLoadedProject", cyaml_new_cstr(doc, lastLoadedProject));
+
+	char* output = cyaml_emit(doc, NULL, NULL);
+	emu_file_write(appLoadedProjectFile, (uint8*)output, strlen(output));
+	free(output);
+	cyaml_free(doc);
+}
+
+static void loadAppMetadata(emu_app* app)
+{
+	emu_file file;
+	if (emu_file_read(appLoadedProjectFile, &file) == emu_fileResult_Success)
+	{
+		cyaml_error_t err;
+		cyaml_doc_t* doc = cyaml_parse(file.data, file.data_size, NULL, &err);
+
+		if (!doc)
+		{
+			g_logger_error("Parse error at line %u: %s", err.span.start_line, err.msg);
+			return;
+		}
+
+		cyaml_node_t* root = cyaml_root(doc);
+		cyaml_node_t* lastLoadedProject = cyaml_get(doc, root, "lastLoadedProject");
+		char* lastLoadedProjectFile = cyaml_scalar_str(doc, lastLoadedProject);
+		emu_app_loadProject(app, lastLoadedProjectFile);
+		free(lastLoadedProjectFile);
+
+		cyaml_free(doc);
+		emu_file_free(&file);
+	}
+	else
+	{
+		g_logger_error("Cannot load app metadata.");
 	}
 }

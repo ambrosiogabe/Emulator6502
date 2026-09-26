@@ -74,3 +74,20 @@ const char* emu_file_openFileDialog(int numFileFilters, const char** fileFilters
 
 	return filename;
 }
+
+const char* emu_file_saveFileDialog(int numFileFilters, const char** fileFilters)
+{
+	emu_app_pauseApp();
+	const char* fileFilterDesc = "";
+	const char* title = "";
+	const char* defaultDir = "";
+	char const* filename = tinyfd_saveFileDialog(
+		title,
+		defaultDir,
+		numFileFilters,
+		fileFilters,
+		fileFilterDesc);
+	emu_app_resumeApp();
+
+	return filename;
+}

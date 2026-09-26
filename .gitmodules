@@ -22,3 +22,6 @@
 [submodule "Emulator/vendor/IconFontCppHeaders"]
 	path = Emulator/vendor/IconFontCppHeaders
 	url = https://github.com/juliettef/IconFontCppHeaders
+[submodule "Emulator/vendor/cyaml"]
+	path = Emulator/vendor/cyaml
+	url = https://github.com/andrewmd5/cyaml

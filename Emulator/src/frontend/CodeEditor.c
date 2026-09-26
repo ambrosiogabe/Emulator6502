@@ -189,6 +189,21 @@ void emu_CodeEditor_tick()
 	ImGui_End();
 }
 
+size_t emu_CodeEditor_getNumOpenFiles()
+{
+	return stbds_arrlen(panels);
+}
+
+const char* emu_CodeEditor_getFullFilepath(size_t index)
+{
+	if (index < (size_t)stbds_arrlen(panels))
+	{
+		return panels[index].fullFilepath;
+	}
+
+	return "";
+}
+
 // ----------- Internal Definitions -------------
 
 static TSTree* generateSyntaxTree(const char* sourceCodeBuffer, size_t sourceCodeBufferLength)

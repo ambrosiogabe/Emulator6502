@@ -8,25 +8,60 @@
 
 #include <dcimgui.h>
 
+static void saveProjectAs(emu_app* app)
+{
+	const int numFileFilters = 2;
+	const char* fileFilters[] = { "*.yml", "*.txt" };
+	const char* filename = emu_file_saveFileDialog(numFileFilters, fileFilters);
+	if (filename != NULL)
+	{
+		emu_app_saveProject(app, filename);
+	}
+}
+
+static void openFile(emu_app* app)
+{
+	const int numFileFilters = 2;
+	const char* fileFilters[] = { "*.s", "*.txt" };
+	const char* filename = emu_file_openFileDialog(numFileFilters, fileFilters);
+	if (filename != NULL)
+	{
+		emu_CodeEditor_openFile(app, filename);
+	}
+}
+
 void emu_MainMenuBar_tick(emu_app* app)
 {
+	if (ImGui_Shortcut(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_S, ImGuiInputFlags_RouteGlobal))
+	{
+		saveProjectAs(app);
+	}
+
+	if (ImGui_Shortcut(ImGuiMod_Ctrl | ImGuiKey_S, ImGuiInputFlags_RouteGlobal))
+	{
+		emu_app_saveProject(app, app->appLoadedProjectFile);
+	}
+
+	if (ImGui_Shortcut(ImGuiMod_Ctrl | ImGuiKey_O, ImGuiInputFlags_RouteGlobal))
+	{
+		openFile(app);
+	}
+
 	if (ImGui_BeginMainMenuBar())
 	{
 		if (ImGui_BeginMenu("File"))
 		{
 			if (ImGui_MenuItemEx("Open", "Ctrl+O", false, true))
 			{
-				const int numFileFilters = 2;
-				const char* fileFilters[] = { "*.s", "*.txt" };
-				const char* filename = emu_file_openFileDialog(numFileFilters, fileFilters);
-				if (filename != NULL)
-				{
-					emu_CodeEditor_openFile(app, filename);
-				}
+				openFile(app);
 			}
 			if (ImGui_MenuItemEx("Save", "Ctrl+S", false, true))
 			{
-
+				emu_app_saveProject(app, app->appLoadedProjectFile);
+			}
+			if (ImGui_MenuItemEx("Save As", "Ctrl+Shift+S", false, true))
+			{
+				saveProjectAs(app);
 			}
 			ImGui_EndMenu();
 		}

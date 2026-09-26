@@ -23,6 +23,17 @@ externalproject "SDL3-static"
     filter "toolset:msc*"
         buildoptions { "/std:c11" }         
 
+externalproject "cyaml_static"
+    location "Emulator/vendor/cyaml/Build/"
+    uuid "63F88B79-AA6F-3D6E-9C5A-0F35556387D2"
+    kind "StaticLib"
+    language "C"
+    cdialect "C11"
+
+    -- Explicitly pass the C11 flag to MSVC because premake is stupid
+    filter "toolset:msc*"
+        buildoptions { "/std:c11" }           
+
 project "tree-sitter"
     kind "StaticLib"
     language "C"
@@ -132,14 +143,16 @@ project "Emulator6502"
         "version",
         "imm32",
         "tinyfiledialogs",
-        "imgui"
+        "imgui",
+        "cyaml_static"
     }
 
     dependson {
         "SDL3-static",
         "tree-sitter",
         "tinyfiledialogs",
-        "imgui"
+        "imgui",
+        "cyaml_static"
     }
 
     targetdir("bin/" .. outputdir .. "/%{prj.name}")
@@ -167,6 +180,8 @@ project "Emulator6502"
         "Emulator/vendor/dear_bindings/generated",
         "Emulator/vendor/imgui",
         "Emulator/vendor/IconFontCppHeaders",
+        -- cyaml
+        "Emulator/vendor/cyaml/src"
     }
 
     filter "system:windows"

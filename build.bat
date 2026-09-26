@@ -21,8 +21,12 @@ if not exist Emulator\vendor\dear_bindings\generated (
     popd
 )
 
-pushd vendor/sdl
-
+if not exist Emulator\vendor\cyaml\Build (
+    mkdir Emulator\vendor\cyaml\Build
+    pushd Emulator\vendor\cyaml\Build
+    cmake -S .. -DSDL_SHARED=OFF -DSDL_STATIC=ON
+    popd
+)
 
 REM Build the project files
 vendor\premake5.exe %1

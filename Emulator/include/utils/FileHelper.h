@@ -20,5 +20,6 @@ void emu_file_free(emu_file* file);
 void emu_file_write(const char* filename, uint8* binaryData, size_t dataSize);
 
 const char* emu_file_openFileDialog(int numFileFilters, const char** fileFilters);
+const char* emu_file_saveFileDialog(int numFileFilters, const char** fileFilters);
 
 #endif

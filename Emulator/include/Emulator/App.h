@@ -19,6 +19,7 @@ typedef struct emu_app
 	ImGuiContext* imgui;
 
 	bool isDebugging;
+	char* appLoadedProjectFile;
 } emu_app;
 
 emu_app* emu_app_init(bool initializeGuiLayers);
@@ -35,5 +36,8 @@ SDL_AppResult emu_app_tick(emu_app* app);
 void emu_app_free(emu_app* app);
 
 void emu_app_runTuiMode(emu_app* app, emu_assembler_program* program);
+
+void emu_app_saveProject(emu_app* app, const char* filename);
+void emu_app_loadProject(emu_app* app, const char* filename);
 
 #endif
