@@ -26,9 +26,14 @@ typedef struct CodeEditorPanel
 	size_t sourceCodeBufferCapacity;
 	char* filename;
 	size_t filenameLength;
+	char* fullFilepath;
+	size_t fullFilepathLength;
 	bool open;
 
-	
+	int totalNumLines;
+	int selectedLine;
+	int cursorBytePos;
+	bool dirty;
 } CodeEditorPanel;
 
 static CodeEditorPanel* panels;
@@ -81,6 +86,11 @@ void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 	res.filename[filenameLength] = '\0';
 	res.filenameLength = filenameLength;
 
+	res.fullFilepath = g_memory_allocate(fullFilepathLength + 1);
+	g_memory_copyMem(res.fullFilepath, (char*)fullFilepath, fullFilepathLength);
+	res.fullFilepathLength = fullFilepathLength;
+	res.fullFilepath[fullFilepathLength] = '\0';
+
 	emu_file file;
 	if (emu_file_read(fullFilepath, &file) == emu_fileResult_Success)
 	{
@@ -94,6 +104,16 @@ void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 		res.syntaxTree = generateSyntaxTree(res.sourceCodeBuffer, res.sourceCodeBufferLength);
 		res.codeHighlights = getAllCaptures(res.syntaxTree, false, res.sourceCodeBuffer);
 		emu_file_free(&file);
+
+		// Calculate some stuff...
+		res.totalNumLines = 1;
+		for (size_t i = 0; i < res.sourceCodeBufferLength; i++)
+		{
+			if (res.sourceCodeBuffer[i] == '\n')
+			{
+				res.totalNumLines++;
+			}
+		}
 
 		emu_app_loadProgram(app, fullFilepath);
 	}
@@ -117,7 +137,7 @@ void emu_CodeEditor_tick()
 	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
 
 	ImGui_PushStyleColor(ImGuiCol_WindowBg, ImGui_ColorConvertFloat4ToU32(theme->bgColor));
-	if (ImGui_Begin("Code Editor", NULL, ImGuiWindowFlags_MenuBar))
+	if (ImGui_Begin("Code Editor", NULL, ImGuiWindowFlags_MenuBar | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse))
 	{
 		if (ImGui_BeginMenuBar())
 		{
@@ -135,10 +155,20 @@ void emu_CodeEditor_tick()
 			for (int i = 0; i < stbds_arrlen(panels); i++)
 			{
 				CodeEditorPanel* panel = panels + i;
-				if (panel->open && ImGui_BeginTabItem(panel->filename, &panel->open, ImGuiTabItemFlags_None))
+				ImGuiTabItemFlags flags = panel->dirty
+					? ImGuiTabItemFlags_UnsavedDocument
+					: ImGuiTabItemFlags_None;
+				if (panel->open && ImGui_BeginTabItem(panel->filename, &panel->open, flags))
 				{
 					renderCodePanel(panel);
 					ImGui_EndTabItem();
+				}
+
+				// Save file if needed
+				if (panel->dirty && ImGui_Shortcut(ImGuiKey_S | ImGuiMod_Ctrl, 0))
+				{
+					panel->dirty = false;
+					emu_file_write(panel->fullFilepath, (uint8*)panel->sourceCodeBuffer, panel->sourceCodeBufferLength);
 				}
 
 				if (!panel->open)
@@ -263,7 +293,7 @@ static HighlightedCode* getAllCaptures(TSTree* syntaxTree, bool printCaptures, c
 		// 5. Update the tracking boundary to the end of this non-overlapping node
 		last_end_byte = end;
 
-		if (printCaptures) 
+		if (printCaptures)
 			g_logger_info("Capture<@%s>: %.*s", capture_name, end - start, source + start);
 	}
 
@@ -290,6 +320,8 @@ static int handleTextResizing(CodeEditorPanel* panel, ImGuiInputTextCallbackData
 static void handleTextEdit(CodeEditorPanel* panel)
 {
 	// TODO: Disgustingly in-efficient. Fix this at some point...
+	panel->sourceCodeBufferLength = strlen(panel->sourceCodeBuffer);
+	panel->dirty = true;
 	ts_tree_delete(panel->syntaxTree);
 	panel->syntaxTree = generateSyntaxTree(panel->sourceCodeBuffer, panel->sourceCodeBufferLength);
 	stbds_arrfree(panel->codeHighlights);
@@ -299,6 +331,7 @@ static void handleTextEdit(CodeEditorPanel* panel)
 static int inputTextCallback(ImGuiInputTextCallbackData* data)
 {
 	CodeEditorPanel* panel = (CodeEditorPanel*)data->UserData;
+	panel->cursorBytePos = data->CursorPos;
 
 	switch (data->EventFlag)
 	{
@@ -312,15 +345,73 @@ static int inputTextCallback(ImGuiInputTextCallbackData* data)
 static void renderCodePanel(CodeEditorPanel* panel)
 {
 	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
+	emu_cimgui_pushFont(CImGui_FontType_Mono);
+
+	ImVec4 lineNumberColor = emu_SyntaxHighlighter_getColor(emu_SyntaxHighlighter_getTheme(), "ui.linenr");
+	ImVec4 selectedLineNumberColor = emu_SyntaxHighlighter_getColor(emu_SyntaxHighlighter_getTheme(), "ui.linenr.selected");
+	ImVec4 textFocusColor = emu_SyntaxHighlighter_getColor(emu_SyntaxHighlighter_getTheme(), "ui.text.focus");
+	uint32 textFocusColorU32 = ImGui_ColorConvertFloat4ToU32(textFocusColor);
+
+	float lineHeight = ImGui_GetTextLineHeight();
+	float yFramePadding = ImGui_GetStyle()->FramePadding.y;
+	float xFramePadding = ImGui_GetStyle()->FramePadding.x;
+
+	// First draw the code gutter (the line numbers/breakpoints/etc)
+	static int lineNumberStart = 0;
+	static int numberOfLinesVisible = 0;
+	static float gutterScrollOffset = 0.0f;
+	// Leave room for at least 5 digits
+	if (ImGui_BeginChild(
+		"##CodeEditor_Gutter",
+		(ImVec2)
+	{
+		0
+	},
+		ImGuiChildFlags_AutoResizeY | ImGuiChildFlags_AutoResizeX,
+		ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse | ImGuiWindowFlags_NoInputs
+	))
+	{
+		ImGui_SetCursorPosY(gutterScrollOffset);
+		float cursorY = gutterScrollOffset;
+		for (int line = lineNumberStart; line <= lineNumberStart + numberOfLinesVisible; line++)
+		{
+			if (line != 0 && line <= panel->totalNumLines)
+			{
+				ImGui_SetCursorPosY(cursorY);
+				if (line == panel->selectedLine)
+				{
+					ImGui_TextColored(selectedLineNumberColor, "%5d", line);
+				}
+				else
+				{
+					ImGui_TextColored(lineNumberColor, "%5d", line);
+				}
+			}
+
+			cursorY += lineHeight;
+		}
+
+		ImGui_EndChild();
+	}
+
+	ImGui_SameLineEx(0.0f, 0.0f);
+	ImGui_SetCursorPosX(ImGui_GetCursorPosX() + xFramePadding * 2.0f);
 
 	// 1. Make the text color transparent so the cursor and box background still render normally
-	int flags = ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackResize;
+	int flags = ImGuiInputTextFlags_AllowTabInput | ImGuiInputTextFlags_CallbackAlways;
 	ImVec2 availableSize = ImGui_GetContentRegionAvail();
-	emu_cimgui_pushFont(CImGui_FontType_Mono);
 
 	ImGui_PushStyleColor(ImGuiCol_Text, IM_COL32_BLACK_TRANS);
 	ImGui_PushStyleColor(ImGuiCol_FrameBg, ImGui_ColorConvertFloat4ToU32(theme->bgColor));
 	ImGui_PushStyleColor(ImGuiCol_InputTextCursor, ImGui_ColorConvertFloat4ToU32(theme->cursorColor));
+
+	// Calculate scrollable area. It should be a bit bigger than the text so we can scroll past the bottom.
+	float totalHeight = panel->totalNumLines * lineHeight;
+	ImVec2 contentSize = {
+		.x = availableSize.x,
+		.y = (numberOfLinesVisible - 1) * lineHeight + totalHeight - yFramePadding * 2
+	};
+	ImGui_SetNextWindowContentSize(contentSize);
 	if (ImGui_InputTextMultilineEx("##Source_Code", panel->sourceCodeBuffer, panel->sourceCodeBufferCapacity, availableSize, flags, inputTextCallback, (void*)panel))
 	{
 		handleTextEdit(panel);
@@ -330,34 +421,45 @@ static void renderCodePanel(CodeEditorPanel* panel)
 	cImFormatStringToTempBuffer(&child_window_name, NULL, "%s/%s_%08X", g->CurrentWindow->Name, "##Source_Code", ImGui_GetID("##Source_Code"));
 	ImGuiWindow* window = ImGui_FindWindowByName(child_window_name);
 
-	float scroll_x = 0.0f;
-	float scroll_y = 0.0f;
+	float scrollX = 0.0f;
+	float scrollY = 0.0f;
 	if (window)
 	{
-		scroll_x = window->Scroll.x;
-		scroll_y = window->Scroll.y;
+		scrollX = window->Scroll.x;
+		scrollY = window->Scroll.y;
+
+		lineNumberStart = (int)((scrollY - yFramePadding) / lineHeight);
+		numberOfLinesVisible = (int)(availableSize.y / lineHeight) + 1;
+		gutterScrollOffset = (float)(lineNumberStart - 1) * lineHeight - scrollY + yFramePadding;
 	}
 	ImGui_PopStyleColor();
 	ImGui_PopStyleColor();
 	ImGui_PopStyleColor();
 
+	// Subtract scrollbar width to make future rendering calculations easier
+	availableSize.x -= ImGui_GetStyle()->ScrollbarSize + xFramePadding;
+
 	// 2. Calculate the screen boundaries where the text was just drawn
 	ImVec2 min_pos = ImGui_GetItemRectMin();
-	ImVec2 max_pos = { .x = min_pos.x + availableSize.x, .y = min_pos.y + availableSize.y }; //ImGui_GetItemRectMax();
+	ImVec2 max_pos = ImGui_GetItemRectMax();
+	max_pos.x -= ImGui_GetStyle()->ScrollbarSize;
 
 	// 3. Render your custom colored substrings manually inside that bounding region
 	ImDrawList* draw_list = ImGui_GetWindowDrawList();
 	ImDrawList_PushClipRect(draw_list, min_pos, max_pos, true);
 
-	float xStart = min_pos.x + ImGui_GetStyle()->FramePadding.x - scroll_x;
+	float xStart = min_pos.x + ImGui_GetStyle()->FramePadding.x - scrollX;
 	ImVec2 text_pos = (ImVec2){
 		.x = xStart,
-		.y = min_pos.y + ImGui_GetStyle()->FramePadding.y - scroll_y
+		.y = min_pos.y + yFramePadding - scrollY
 	};
 
 	// Example of drawing substrings manually with split colors
 	ImGui_PushFont(ImGui_GetFont()); // Match the active font
 
+	int currentLine = 1;
+	ImVec2 lineDrawStartPos = text_pos;
+	ImVec2 lineDrawEndPos = { .x = text_pos.x + availableSize.x, text_pos.y + lineHeight };
 	for (size_t i = 0; i < (size_t)stbds_arrlen(panel->codeHighlights); i++)
 	{
 		char* start = panel->sourceCodeBuffer + panel->codeHighlights[i].startByte;
@@ -366,13 +468,25 @@ static void renderCodePanel(CodeEditorPanel* panel)
 
 		for (size_t charIndex = panel->codeHighlights[i].startByte; charIndex < panel->codeHighlights[i].endByte; charIndex++)
 		{
+			if (charIndex == panel->cursorBytePos)
+			{
+				panel->selectedLine = currentLine;
+
+				// Draw a box around the line
+				ImDrawList_AddRect(draw_list, lineDrawStartPos, lineDrawEndPos, textFocusColorU32);
+			}
+
 			if (panel->sourceCodeBuffer[charIndex] == '\n')
 			{
 				ImDrawList_AddTextEx(draw_list, text_pos, color, start, end);
-				text_pos.y += ImGui_GetTextLineHeight();
+				text_pos.y += lineHeight;
 				text_pos.x = xStart;
 
 				start = panel->sourceCodeBuffer + charIndex;
+				currentLine++;
+
+				lineDrawStartPos = text_pos;
+				lineDrawEndPos = (ImVec2){ .x = text_pos.x + availableSize.x, text_pos.y + lineHeight };
 			}
 		}
 
@@ -397,6 +511,11 @@ static void freePanel(CodeEditorPanel* panel)
 	if (panel->filename)
 	{
 		g_memory_free(panel->filename);
+	}
+
+	if (panel->fullFilepath)
+	{
+		g_memory_free(panel->fullFilepath);
 	}
 
 	if (panel->sourceCodeBuffer)

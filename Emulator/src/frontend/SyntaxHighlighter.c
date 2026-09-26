@@ -69,6 +69,7 @@ void emu_SyntaxHighlighter_init()
 		stbds_shput(darkTheme->styles, "constant", hexToColor(0x79c0ff));
 		stbds_shput(darkTheme->styles, "error", hexToColor(0xf85149));
 		stbds_shput(darkTheme->styles, "comment", hexToColor(0x8b949e));
+		stbds_shput(darkTheme->styles, "ui.linenr", hexToColor(0x6e7681));
 	}
 
 	{
@@ -109,6 +110,9 @@ void emu_SyntaxHighlighter_init()
 		stbds_shput(mochaTheme->styles, "constant", hexToColor(0xfab387));
 		stbds_shput(mochaTheme->styles, "error", hexToColor(0xf38ba8));
 		stbds_shput(mochaTheme->styles, "comment", hexToColor(0x9399b2));
+		stbds_shput(mochaTheme->styles, "ui.linenr", hexToColor(0x45475a));
+		stbds_shput(mochaTheme->styles, "ui.linenr.selected", hexToColor(0xb4befe));
+		stbds_shput(mochaTheme->styles, "ui.text.focus", hexToColor(0x313244));
 	}
 
 	{
