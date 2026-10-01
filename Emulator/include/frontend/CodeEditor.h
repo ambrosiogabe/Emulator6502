@@ -9,7 +9,7 @@ void emu_CodeEditor_free();
 
 void emu_CodeEditor_openFile(emu_app* app, const char* filename);
 
-void emu_CodeEditor_tick();
+void emu_CodeEditor_tick(emu_app* app);
 
 size_t emu_CodeEditor_getNumOpenFiles();
 const char* emu_CodeEditor_getFullFilepath(size_t index);

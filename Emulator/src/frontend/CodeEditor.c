@@ -133,7 +133,7 @@ void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 	stbds_arrpush(panels, res);
 }
 
-void emu_CodeEditor_tick()
+void emu_CodeEditor_tick(emu_app* app)
 {
 	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
 
@@ -170,6 +170,7 @@ void emu_CodeEditor_tick()
 				{
 					panel->dirty = false;
 					emu_file_write(panel->fullFilepath, (uint8*)panel->sourceCodeBuffer, panel->sourceCodeBufferLength);
+					emu_app_loadProgram(app, panel->fullFilepath);
 				}
 
 				if (!panel->open)

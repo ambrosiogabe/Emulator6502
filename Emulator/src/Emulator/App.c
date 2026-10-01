@@ -114,7 +114,6 @@ void emu_app_loadProgram(emu_app* app, const char* fullFilepath)
 	app->program = res;
 	app->isDebugging = true;
 
-	emu_vm_loadProgram(app->vm, res);
 	emu_EmulatorDebug_beginDebugging(app);
 }
 

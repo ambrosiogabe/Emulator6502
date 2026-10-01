@@ -155,7 +155,7 @@ void emu_cimgui_tickBegin(emu_app* app)
 
 	// Draw windows of the app
 	emu_MainMenuBar_tick(app);
-	emu_CodeEditor_tick();
+	emu_CodeEditor_tick(app);
 	emu_ConsoleOutput_tick();
 	emu_EmulatorDebug_tick(app);
 	emu_EmulatorViewport_tick();
