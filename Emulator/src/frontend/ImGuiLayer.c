@@ -6,6 +6,7 @@
 #include "frontend/EmulatorDebug.h"
 #include "frontend/EmulatorViewport.h"
 #include "frontend/FileExplorer.h"
+#include "frontend/ProjectConfiguration.h"
 #include "utils/SafeVendor.h"
 #include "Emulator/App.h"
 
@@ -165,6 +166,7 @@ void emu_cimgui_tickBegin(emu_app* app)
 	emu_EmulatorDebug_tick(app);
 	emu_EmulatorViewport_tick();
 	emu_FileExplorer_tick(app);
+	emu_projectConfiguration_tick(app);
 
 	if (show_demo_window)
 		ImGui_ShowDemoWindow(&show_demo_window);

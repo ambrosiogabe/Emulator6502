@@ -13,6 +13,7 @@ typedef struct emu_assembler_program emu_assembler_program;
 typedef struct emu_app_data
 {
 	char* projectDirectory;
+	char** sourceFiles;
 } emu_app_data;
 
 typedef struct emu_app

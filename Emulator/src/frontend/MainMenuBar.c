@@ -1,6 +1,7 @@
 #include "frontend/MainMenuBar.h"
 #include "frontend/SyntaxHighlighter.h"
 #include "frontend/CodeEditor.h"
+#include "frontend/ProjectConfiguration.h"
 #include "utils/FileHelper.h"
 #include "Emulator/Assembler.h"
 #include "Emulator/VirtualMachine.h"
@@ -67,6 +68,12 @@ void emu_MainMenuBar_tick(emu_app* app)
 		}
 		if (ImGui_BeginMenu("Edit"))
 		{
+			if (ImGui_MenuItem("Project Configuration"))
+			{
+				emu_projectConfiguration_open();
+			}
+			ImGui_Separator();
+
 			if (ImGui_MenuItemEx("Undo", "Ctrl+Z", false, true)) g_logger_warning("TODO: Implement Undo");
 			if (ImGui_MenuItemEx("Redo", "Ctrl+Y", false, false)) g_logger_warning("TODO: Implement Redo");
 			ImGui_Separator();

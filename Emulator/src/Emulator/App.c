@@ -11,11 +11,10 @@
 #include "frontend/EmulatorDebug.h"
 #include "frontend/CodeEditor.h"
 
-#include <stdio.h>
 #include <conio.h>
+#include <stdio.h>
 
-#include <assert.h>
-#include <string.h>
+#include <stb/stb_ds.h>
 #include <cyaml.h>
 
 static void saveAppMetadata(const char* lastLoadedProject);
@@ -380,6 +379,12 @@ static void freeAppData(emu_app_data* data)
 		{
 			g_memory_free(data->projectDirectory);
 		}
+
+		for (int i = 0; i < stbds_arrlen(data->sourceFiles); i++)
+		{
+			g_memory_free(data->sourceFiles[i]);
+		}
+		stbds_arrfree(data->sourceFiles);
 
 		*data = (emu_app_data){ 0 };
 	}

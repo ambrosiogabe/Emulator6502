@@ -1,4 +1,5 @@
 #include "frontend/FileExplorer.h"
+#include "frontend/ConsoleOutput.h"
 #include "Emulator/App.h"
 #include "utils/SafeVendor.h"
 #include "utils/FileHelper.h"
@@ -9,7 +10,7 @@
 #include <IconsFontAwesome7.h>
 
 static void showDefaultView(emu_app_data* app);
-static int showDirectory(int uid, emu_file_data* dir);
+static int showDirectory(int uid, emu_file_data* dir, emu_app* app);
 static void freeDirectory(emu_file_data* dir);
 
 static emu_file_data openDirectory;
@@ -30,7 +31,7 @@ void emu_FileExplorer_tick(emu_app* app)
 
 	if (ImGui_Begin("Explorer", NULL, 0))
 	{
-		showDirectory(0, &openDirectory);
+		showDirectory(0, &openDirectory, app);
 
 		//for (int i = 0; i < 5; i++)
 		//{
@@ -91,7 +92,7 @@ static void showDefaultView(emu_app_data* app)
 	ImGui_End();
 }
 
-static int showDirectory(int uid, emu_file_data* dir)
+static int showDirectory(int uid, emu_file_data* dir, emu_app* app)
 {
 	ImGuiTreeNodeFlags_ flags = dir == &openDirectory
 		? ImGuiTreeNodeFlags_DefaultOpen
@@ -107,7 +108,7 @@ static int showDirectory(int uid, emu_file_data* dir)
 			emu_file_data* child = dir->children + i;
 			if (child->type & emu_file_type_directory)
 			{
-				uid = showDirectory(uid, child);
+				uid = showDirectory(uid, child, app);
 			}
 		}
 
@@ -124,6 +125,22 @@ static int showDirectory(int uid, emu_file_data* dir)
 					ImGui_TreePop();
 				}
 				ImGui_PopID();
+
+				if (ImGui_BeginPopupContextItem())
+				{
+					if (ImGui_MenuItem("Add to Project"))
+					{
+						if (child->extType == emu_file_extType_asm)
+						{
+							stbds_arrpush(app->data.sourceFiles, g_strcpy(child->filename));
+						}
+						else
+						{
+							emu_ConsoleOutput_error("Cannot add file '%s' to project. File must be assembly file with extension '.s'.", child->filename);
+						}
+					}
+					ImGui_EndPopup();
+				}
 				uid++;
 			}
 		}
