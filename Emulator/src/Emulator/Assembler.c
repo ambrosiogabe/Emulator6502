@@ -191,11 +191,6 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 {
 	emu_TokenList tokenList = emu_parser_parseFile(filename);
 
-	//for (size_t i = 0; i < emu_parser_tokenListLength(&tokenList); i++)
-	//{
-	//	emu_parser_debugPrintToken(&tokenList, i);
-	//}
-
 	emu_Assembler assembler = {
 		.program = {.data = g_memory_allocate(programSize), .dataSize = programSize },
 	.current = 0,

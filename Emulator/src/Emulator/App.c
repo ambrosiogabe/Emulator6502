@@ -20,6 +20,7 @@
 
 static void saveAppMetadata(const char* lastLoadedProject);
 static void loadAppMetadata(emu_app* app);
+static void freeAppData(emu_app_data* metadata);
 
 static bool isAppPaused = false;
 static const char* appLoadedProjectFile = "./appMetadata.yml";
@@ -135,14 +136,14 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 		.program = NULL,
 		.isDebugging = true,
 	};
+	loadAppMetadata(res);
 
 	if (initializeGuiLayers)
 	{
 		res->sdl = emu_frontend_initAndCreateWindow();
 		if (res->sdl)
 		{
-			res->imgui = emu_cimgui_init(res->sdl);
-			loadAppMetadata(res);
+			res->imgui = emu_cimgui_init(res, res->sdl);
 		}
 	}
 
@@ -236,6 +237,7 @@ void emu_app_free(emu_app* app)
 			g_memory_free(app->appLoadedProjectFile);
 		}
 
+		freeAppData(&app->data);
 		g_memory_free(app);
 	}
 }
@@ -254,6 +256,11 @@ void emu_app_saveProject(emu_app* app, const char* filename)
 	}
 	cyaml_map_set(doc, root, "openFiles", openFiles);
 
+	if (app->data.projectDirectory)
+	{
+		cyaml_map_set(doc, root, "projectDirectory", cyaml_new_cstr(doc, app->data.projectDirectory));
+	}
+
 	char* output = cyaml_emit(doc, NULL, NULL);
 	emu_file_write(filename, (uint8*)output, strlen(output));
 	free(output);
@@ -264,6 +271,8 @@ void emu_app_saveProject(emu_app* app, const char* filename)
 
 void emu_app_loadProject(emu_app* app, const char* filename)
 {
+	freeAppData(&app->data);
+
 	emu_file file;
 	if (emu_file_read(filename, &file) == emu_fileResult_Success)
 	{
@@ -278,14 +287,32 @@ void emu_app_loadProject(emu_app* app, const char* filename)
 
 		cyaml_node_t* root = cyaml_root(doc);
 		cyaml_node_t* openFiles = cyaml_get(doc, root, "openFiles");
-		uint32 numOpenFiles = cyaml_seq_len(openFiles);
-		for (uint32 i = 0; i < numOpenFiles; i++)
+		if (openFiles)
 		{
-			cyaml_node_t* fileToLoad = cyaml_seq_get(openFiles, i);
-			char* fileToLoadStr = cyaml_scalar_str(doc, fileToLoad);
-			emu_CodeEditor_openFile(app, fileToLoadStr);
-			free(fileToLoadStr);
+			uint32 numOpenFiles = cyaml_seq_len(openFiles);
+			for (uint32 i = 0; i < numOpenFiles; i++)
+			{
+				cyaml_node_t* fileToLoad = cyaml_seq_get(openFiles, i);
+				char* fileToLoadStr = cyaml_scalar_str(doc, fileToLoad);
+				emu_CodeEditor_openFile(app, fileToLoadStr);
+				free(fileToLoadStr);
+			}
 		}
+
+		cyaml_node_t* prjDirectoryNode = cyaml_get(doc, root, "projectDirectory");
+		if (prjDirectoryNode)
+		{
+			char* prjDirectory = cyaml_scalar_str(doc, prjDirectoryNode);
+			size_t prjDirectoryLength = strlen(prjDirectory);
+
+			char* copy = g_memory_allocate(prjDirectoryLength + 1);
+			g_memory_copyMem(copy, prjDirectory, prjDirectoryLength);
+			copy[prjDirectoryLength] = '\0';
+			app->data.projectDirectory = copy;
+
+			free(prjDirectory);
+		}
+
 
 		cyaml_free(doc);
 		emu_file_free(&file);
@@ -342,5 +369,18 @@ static void loadAppMetadata(emu_app* app)
 	else
 	{
 		g_logger_error("Cannot load app metadata.");
+	}
+}
+
+static void freeAppData(emu_app_data* data)
+{
+	if (data)
+	{
+		if (data->projectDirectory)
+		{
+			g_memory_free(data->projectDirectory);
+		}
+
+		*data = (emu_app_data){ 0 };
 	}
 }

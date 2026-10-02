@@ -5,7 +5,9 @@
 #include "frontend/ConsoleOutput.h"
 #include "frontend/EmulatorDebug.h"
 #include "frontend/EmulatorViewport.h"
+#include "frontend/FileExplorer.h"
 #include "utils/SafeVendor.h"
+#include "Emulator/App.h"
 
 #include <IconsFontAwesome7.h>
 #include <IconsFontAwesome7Brands.h>
@@ -25,7 +27,7 @@ ImVec4 clear_color;
 static ImFont* monoFont = NULL;
 static ImFont* defaultFont = NULL;
 
-ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl)
+ImGuiContext* emu_cimgui_init(emu_app* app, emu_sdl_wrapper* sdl)
 {
 	float main_scale = SDL_GetDisplayContentScale(SDL_GetPrimaryDisplay());
 
@@ -99,6 +101,7 @@ ImGuiContext* emu_cimgui_init(emu_sdl_wrapper* sdl)
 	// Init frontend
 	emu_CodeEditor_init();
 	emu_ConsoleOutput_init();
+	emu_FileExplorer_init(app->data.projectDirectory);
 
 	emu_ConsoleOutput_info("This is a test");
 	emu_ConsoleOutput_warn("This is a test with formatting: '%s'", "I'm formatted here.");
@@ -122,12 +125,12 @@ void emu_cimgui_tickBegin(emu_app* app)
 
 	// Orgnaize Docking layout
 	{
-		static bool first_time = true;
+		static bool firstTime = true;
 		ImGuiID dockspace_id = ImGui_DockSpaceOverViewportEx(0, ImGui_GetMainViewport(), ImGuiDockNodeFlags_NoUndocking, NULL);
 
-		if (first_time)
+		if (firstTime)
 		{
-			first_time = false;
+			firstTime = false;
 
 			// Clear out any existing invalid layout
 			ImGui_DockBuilderRemoveNode(dockspace_id);
@@ -138,11 +141,13 @@ void emu_cimgui_tickBegin(emu_app* app)
 
 			// Split the dockspace node into different regions (e.g., Left panel for controls)
 			ImGuiID dock_main_id = dockspace_id;
-			ImGuiID dock_left_id = ImGui_DockBuilderSplitNode(dock_main_id, ImGuiDir_Left, 0.35f, NULL, &dock_main_id);
+			ImGuiID dock_left_id = ImGui_DockBuilderSplitNode(dock_main_id, ImGuiDir_Left, 0.25f, NULL, &dock_main_id);
 			ImGuiID dock_down_id = ImGui_DockBuilderSplitNode(dock_main_id, ImGuiDir_Down, 0.25f, NULL, &dock_main_id);
 
 			// Assign specific window names to specific dock IDs
 			ImGui_DockBuilderDockWindow("Debug", dock_left_id);
+			ImGui_DockBuilderDockWindow("Explorer", dock_left_id);
+			ImGui_DockBuilderDockWindow("No Open Folders", dock_left_id);
 			ImGui_DockBuilderDockWindow("Dear ImGui Demo", dock_left_id);
 			ImGui_DockBuilderDockWindow("Console Output", dock_down_id);
 			ImGui_DockBuilderDockWindow("Code Editor", dock_main_id);
@@ -159,9 +164,20 @@ void emu_cimgui_tickBegin(emu_app* app)
 	emu_ConsoleOutput_tick();
 	emu_EmulatorDebug_tick(app);
 	emu_EmulatorViewport_tick();
+	emu_FileExplorer_tick(app);
 
 	if (show_demo_window)
 		ImGui_ShowDemoWindow(&show_demo_window);
+
+	// Set Focus to appropriate pre-liminary docking tabs
+	{
+		static bool firstTime = true;
+		if (firstTime)
+		{
+			firstTime = false;
+			emu_cimgui_focusWindow(CImGui_WindowType_Explorer);
+		}
+	}
 }
 
 SDL_AppResult emu_cimgui_tickEnd(emu_sdl_wrapper* sdl)
@@ -184,6 +200,7 @@ void emu_cimgui_free(ImGuiContext* ctx)
 	// Free frontend
 	emu_CodeEditor_free();
 	emu_ConsoleOutput_free();
+	emu_FileExplorer_free();
 
 	// Cleanup
 	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
@@ -228,6 +245,10 @@ void emu_cimgui_focusWindow(CImGui_WindowType windowType)
 		break;
 	case CImGui_WindowType_Viewport:
 		ImGui_SetWindowFocusStr("Viewport");
+		break;
+	case CImGui_WindowType_Explorer:
+		ImGui_SetWindowFocusStr("Explorer");
+		ImGui_SetWindowFocusStr("No Open Folders");
 		break;
 	}
 }

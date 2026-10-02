@@ -5,4 +5,6 @@
 #include <cppUtils/cppUtils.h>
 #pragma warning(pop)
 
+char* g_strcpy(const char* str);
+
 #endif

@@ -10,6 +10,11 @@ typedef struct emu_sdl_wrapper emu_sdl_wrapper;
 typedef struct ImGuiContext_t ImGuiContext;
 typedef struct emu_assembler_program emu_assembler_program;
 
+typedef struct emu_app_data
+{
+	char* projectDirectory;
+} emu_app_data;
+
 typedef struct emu_app
 {
 	emu_assembler_program* program;
@@ -20,6 +25,7 @@ typedef struct emu_app
 
 	bool isDebugging;
 	char* appLoadedProjectFile;
+	emu_app_data data;
 } emu_app;
 
 emu_app* emu_app_init(bool initializeGuiLayers);
