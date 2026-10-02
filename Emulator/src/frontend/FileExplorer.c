@@ -6,6 +6,7 @@
 #include <dcimgui.h>
 #include <minmax.h>
 #include <stb/stb_ds.h>
+#include <IconsFontAwesome7.h>
 
 static void showDefaultView(emu_app_data* app);
 static int showDirectory(int uid, emu_file_data* dir);
@@ -92,9 +93,13 @@ static void showDefaultView(emu_app_data* app)
 
 static int showDirectory(int uid, emu_file_data* dir)
 {
+	ImGuiTreeNodeFlags_ flags = dir == &openDirectory
+		? ImGuiTreeNodeFlags_DefaultOpen
+		: ImGuiTreeNodeFlags_None;
+	flags |= ImGuiTreeNodeFlags_SpanAvailWidth;
 	ImGui_PushIDInt(uid);
 	uid++;
-	if (ImGui_TreeNode(dir->filename))
+	if (ImGui_TreeNodeExStr(dir->filename, flags, "%s %s", ICON_FA_FOLDER, dir->filename))
 	{
 		// First display all directories
 		for (int i = 0; i < stbds_arrlen(dir->children); i++)
@@ -113,7 +118,8 @@ static int showDirectory(int uid, emu_file_data* dir)
 			if (child->type & emu_file_type_normal)
 			{
 				ImGui_PushIDInt(uid);
-				if (ImGui_TreeNodeEx(child->filename, ImGuiTreeNodeFlags_Leaf))
+				const char* icon = emu_file_getExtIcon(child->extType);
+				if (ImGui_TreeNodeExStr(child->filename, flags | ImGuiTreeNodeFlags_Leaf, "%s %s", icon, child->filename))
 				{
 					ImGui_TreePop();
 				}

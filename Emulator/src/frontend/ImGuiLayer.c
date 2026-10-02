@@ -87,7 +87,7 @@ ImGuiContext* emu_cimgui_init(emu_app* app, emu_sdl_wrapper* sdl)
 	static const ImWchar icon_ranges[] = { ICON_MIN_FA, ICON_MAX_FA, 0 };
 	//ImFontAtlas_AddFontFromFileTTF(io->Fonts, "./assets/fonts/fa-regular-400.ttf", 16.0f, &config, icon_ranges);
 	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "./assets/fonts/fa-solid-900.ttf", 16.0f, &config, icon_ranges);
-	//ImFontAtlas_AddFontFromFileTTF(io->Fonts, "./assets/fonts/fa-brands-400.ttf", 16.0f, &config, NULL);
+	ImFontAtlas_AddFontFromFileTTF(io->Fonts, "./assets/fonts/fa-brands-400.ttf", 16.0f, &config, NULL);
 
 	monoFont = ImFontAtlas_AddFontFromFileTTF(io->Fonts, "C:/Windows/Fonts/UbuntuMono-Regular.ttf", 16.0f, NULL, NULL);
 	IM_ASSERT(monoFont != NULL);

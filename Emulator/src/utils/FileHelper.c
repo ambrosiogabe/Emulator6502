@@ -4,6 +4,8 @@
 #include <stdio.h>
 #include <tinyfiledialogs.h>
 #include <stb/stb_ds.h>
+#include <IconsFontAwesome7.h>
+#include <IconsFontAwesome7Brands.h>
 
 #ifdef _WIN32
 #include <Windows.h>
@@ -171,11 +173,94 @@ static void searchDirAndAddToChild(const char* dirToSearch, emu_file_data* child
 			continue;
 		}
 
+		size_t filenameLength = strlen(findData.cFileName);
+		char* ext = (char*)(findData.cFileName + filenameLength);
+		for (int i = (int)filenameLength; i >= 0; i--)
+		{
+			if (findData.cFileName[i] == '.')
+			{
+				ext = findData.cFileName + i;
+				break;
+			}
+		}
+
+
+		emu_file_extType extType = emu_file_extType_generic;
+		if (strcmp(ext, ".txt") == 0)
+		{
+			extType = emu_file_extType_txt;
+		}
+		else if (strcmp(ext, ".s") == 0)
+		{
+			extType = emu_file_extType_asm;
+		}
+		else if (strcmp(ext, ".chr") == 0)
+		{
+			extType = emu_file_extType_chr;
+		}
+		else if (strcmp(ext, ".bin") == 0)
+		{
+			extType = emu_file_extType_bin;
+		}
+		else if (strcmp(ext, "") == 0)
+		{
+			extType = emu_file_extType_exe;
+		}
+		else if (strcmp(ext, ".exe") == 0)
+		{
+			extType = emu_file_extType_exe;
+		}
+		else if (strcmp(ext, ".yml") == 0)
+		{
+			extType = emu_file_extType_yml;
+		}
+		else if (strcmp(ext, ".yaml") == 0)
+		{
+			extType = emu_file_extType_yml;
+		}
+		else if (strcmp(ext, ".png") == 0)
+		{
+			extType = emu_file_extType_png;
+		}
+		else if (strcmp(ext, ".jpg") == 0)
+		{
+			extType = emu_file_extType_jpg;
+		}
+		else if (strcmp(ext, ".dbg") == 0)
+		{
+			extType = emu_file_extType_dbg;
+		}
+		else if (strcmp(ext, ".debu") == 0)
+		{
+			extType = emu_file_extType_dbg;
+		}
+		else if (strcmp(ext, ".o") == 0)
+		{
+			extType = emu_file_extType_bin;
+		}
+		else if (strcmp(ext, ".bat") == 0)
+		{
+			extType = emu_file_extType_bat;
+		}
+		else if (strcmp(ext, ".ps1") == 0)
+		{
+			extType = emu_file_extType_bat;
+		}
+		else if (strcmp(ext, ".gitignore") == 0)
+		{
+			extType = emu_file_extType_gitignore;
+		}
+		else if (strcmp(ext, ".nes") == 0)
+		{
+			extType = emu_file_extType_nes;
+		}
+
 		char* filenameCopy = g_strcpy(findData.cFileName);
 		emu_file_data data = { 0 };
 		data.filename = filenameCopy;
 		data.filenameLength = strlen(filenameCopy);
 		data.type = emu_file_type_unknown;
+		data.extType = extType;
 
 		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 		{
@@ -226,3 +311,33 @@ emu_file_data emu_file_getAllFilesInDirectory(const char* directory)
 	return res;
 }
 #endif
+
+const char* emu_file_getExtIcon(emu_file_extType ext)
+{
+	switch (ext)
+	{
+		case emu_file_extType_txt:
+		case emu_file_extType_bin:
+		case emu_file_extType_exe:
+		case emu_file_extType_dbg:
+			return ICON_FA_ALIGN_LEFT;
+		case emu_file_extType_chr:
+			return ICON_FA_PICTURE_IN_PICTURE;
+		case emu_file_extType_yml:
+			return ICON_FA_EXCLAMATION;
+		case emu_file_extType_png:
+		case emu_file_extType_jpg:
+			return ICON_FA_IMAGE;
+		case emu_file_extType_asm:
+			return ICON_FA_CODE;
+		case emu_file_extType_ps1:
+		case emu_file_extType_bat:
+			return ICON_FA_TERMINAL;
+		case emu_file_extType_gitignore:
+			return ICON_FA_GIT_ALT;
+		case emu_file_extType_nes:
+			return ICON_FA_GAMEPAD;
+	}
+
+	return ICON_FA_ALIGN_LEFT;
+}
