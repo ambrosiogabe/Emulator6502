@@ -103,6 +103,17 @@ void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 	emu_file file;
 	if (emu_file_read(fullFilepath, &file) == emu_fileResult_Success)
 	{
+		// Remove all carriage returns
+		for (size_t i = 0; i < file.data_size; i++)
+		{
+			if (file.data[i] == '\r')
+			{
+				// We don't do file.data_size - i - 1 here so that we also move the null terminator
+				memmove(file.data + i, file.data + i + 1, file.data_size - i);
+				file.data_size--;
+			}
+		}
+
 		// Multiply by 1.5 to get some buffer room
 		res.sourceCodeBufferCapacity = (size_t)((float)file.data_size * 1.5f);
 		res.sourceCodeBufferLength = file.data_size;
@@ -579,11 +590,12 @@ static void renderCodePanel(CodeEditorPanel* panel)
 
 			if (panel->sourceCodeBuffer[charIndex] == '\n')
 			{
-				ImDrawList_AddTextEx(draw_list, text_pos, color, start, end);
+				char* newLinePtr = panel->sourceCodeBuffer + charIndex;
+				ImDrawList_AddTextEx(draw_list, text_pos, color, start, newLinePtr);
 				text_pos.y += lineHeight;
 				text_pos.x = xStart;
 
-				start = panel->sourceCodeBuffer + charIndex;
+				start = panel->sourceCodeBuffer + charIndex + 1;
 				currentLine++;
 
 				lineDrawStartPos = text_pos;
@@ -591,9 +603,14 @@ static void renderCodePanel(CodeEditorPanel* panel)
 			}
 		}
 
-		ImDrawList_AddTextEx(draw_list, text_pos, color, start, end);
-		ImVec2 textSize = ImGui_CalcTextSizeEx(start, end, false, -1.0f);
-		text_pos.x += textSize.x;
+		// Make sure we didn't draw the entire line while calculating new lines
+		// If we didn't: draw the remaining text.
+		if (start < end)
+		{
+			ImDrawList_AddTextEx(draw_list, text_pos, color, start, end);
+			ImVec2 textSize = ImGui_CalcTextSizeEx(start, end, false, -1.0f);
+			text_pos.x += textSize.x;
+		}
 	}
 
 	ImGui_PopFont();
