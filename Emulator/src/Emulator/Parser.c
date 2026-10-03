@@ -11,6 +11,7 @@
 // Internal structures
 const char* emu_ControlCommands[] = {
 	"export",
+	"import",
 	"segment",
 	"proc",
 	"endproc",
@@ -79,6 +80,7 @@ const char* emu_TokenTypes[] = {
 	"String",
 	"Character",
 	"Comma",
+	"AtSign",
 	"Plus",
 	"Minus",
 	"RightAngleBracket",
@@ -299,6 +301,9 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 	case ',':
 		emu_getChar(parser);
 		return emu_makeToken(emu_TokenType_Comma, start, parser->current, line, column, (emu_TokenData) { 0 });
+	case '@':
+		emu_getChar(parser);
+		return emu_makeToken(emu_TokenType_AtSign, start, parser->current, line, column, (emu_TokenData) { 0 });
 	case ':':
 		emu_getChar(parser);
 		return emu_makeToken(emu_TokenType_Colon, start, parser->current, line, column, (emu_TokenData) { 0 });

@@ -518,6 +518,11 @@ uint8 emu_vm_instructionNumArgs(emu_vmInstruction instruction)
 		return 1;
 	}
 
+	if (strcmp(instructionType, "REL") == 0)
+	{
+		return 2;
+	}
+
 	return 0;
 }
 

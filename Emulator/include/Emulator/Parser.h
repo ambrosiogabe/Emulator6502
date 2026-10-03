@@ -11,6 +11,7 @@ typedef struct emu_file emu_file;
 typedef enum emu_ControlCommand
 {
 	emu_ControlCommand_Export,
+	emu_ControlCommand_Import,
 	emu_ControlCommand_Segment,
 	emu_ControlCommand_Proc,
 	emu_ControlCommand_EndProc,
@@ -84,6 +85,7 @@ typedef enum emu_TokenType
 	emu_TokenType_String,
 	emu_TokenType_Character,
 	emu_TokenType_Comma,
+	emu_TokenType_AtSign,
 	emu_TokenType_Plus,
 	emu_TokenType_Minus,
 	emu_TokenType_RightAngleBracket,
