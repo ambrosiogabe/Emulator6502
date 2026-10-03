@@ -255,6 +255,18 @@ void emu_app_saveProject(emu_app* app, const char* filename)
 	}
 	cyaml_map_set(doc, root, "openFiles", openFiles);
 
+	if (app->data.sourceFiles)
+	{
+		cyaml_node_t* sourceFiles = cyaml_new_seq(doc);
+		size_t numSourceFiles = stbds_arrlen(app->data.sourceFiles);
+		for (size_t i = 0; i < numSourceFiles; i++)
+		{
+			const char* sourceFile = app->data.sourceFiles[i];
+			cyaml_seq_push(sourceFiles, cyaml_new_cstr(doc, sourceFile));
+		}
+		cyaml_map_set(doc, root, "sourceFiles", sourceFiles);
+	}
+
 	if (app->data.projectDirectory)
 	{
 		cyaml_map_set(doc, root, "projectDirectory", cyaml_new_cstr(doc, app->data.projectDirectory));
@@ -294,6 +306,19 @@ void emu_app_loadProject(emu_app* app, const char* filename)
 				cyaml_node_t* fileToLoad = cyaml_seq_get(openFiles, i);
 				char* fileToLoadStr = cyaml_scalar_str(doc, fileToLoad);
 				emu_CodeEditor_openFile(app, fileToLoadStr);
+				free(fileToLoadStr);
+			}
+		}
+
+		cyaml_node_t* sourceFiles = cyaml_get(doc, root, "sourceFiles");
+		if (sourceFiles)
+		{
+			uint32 numSourceFiles = cyaml_seq_len(sourceFiles);
+			for (uint32 i = 0; i < numSourceFiles; i++)
+			{
+				cyaml_node_t* sourceFileToLoad = cyaml_seq_get(sourceFiles, i);
+				char* fileToLoadStr = cyaml_scalar_str(doc, sourceFileToLoad);
+				stbds_arrpush(app->data.sourceFiles, g_strcpy(fileToLoadStr));
 				free(fileToLoadStr);
 			}
 		}

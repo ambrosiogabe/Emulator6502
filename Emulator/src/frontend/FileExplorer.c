@@ -1,5 +1,6 @@
 #include "frontend/FileExplorer.h"
 #include "frontend/ConsoleOutput.h"
+#include "frontend/CodeEditor.h"
 #include "Emulator/App.h"
 #include "utils/SafeVendor.h"
 #include "utils/FileHelper.h"
@@ -122,6 +123,17 @@ static int showDirectory(int uid, emu_file_data* dir, emu_app* app)
 				const char* icon = emu_file_getExtIcon(child->extType);
 				if (ImGui_TreeNodeExStr(child->filename, flags | ImGuiTreeNodeFlags_Leaf, "%s %s", icon, child->filename))
 				{
+					if (ImGui_IsItemClicked())
+					{
+						if (child->extType == emu_file_extType_asm)
+						{
+							emu_CodeEditor_openFile(app, child->fullFilepath);
+						}
+						else
+						{
+							emu_ConsoleOutput_error("Cannot open file '%s'. File must be assembly file with extension '.s'.", child->filename);
+						}
+					}
 					ImGui_TreePop();
 				}
 				ImGui_PopID();
@@ -132,7 +144,7 @@ static int showDirectory(int uid, emu_file_data* dir, emu_app* app)
 					{
 						if (child->extType == emu_file_extType_asm)
 						{
-							stbds_arrpush(app->data.sourceFiles, g_strcpy(child->filename));
+							stbds_arrpush(app->data.sourceFiles, g_strcpy(child->fullFilepath));
 						}
 						else
 						{
@@ -172,6 +184,13 @@ static void freeDirectory(emu_file_data* dir)
 			child->filename = NULL;
 			child->filenameLength = 0;
 		}
+
+		if (child->fullFilepath)
+		{
+			g_memory_free(child->fullFilepath);
+			child->fullFilepath = NULL;
+			child->fullFilepathLength = 0;
+		}
 	}
 
 	stbds_arrfree(dir->children);
@@ -180,5 +199,12 @@ static void freeDirectory(emu_file_data* dir)
 		g_memory_free(dir->filename);
 		dir->filename = NULL;
 		dir->filenameLength = 0;
+	}
+
+	if (dir->fullFilepath)
+	{
+		g_memory_free(dir->fullFilepath);
+		dir->fullFilepath = NULL;
+		dir->fullFilepathLength = 0;
 	}
 }

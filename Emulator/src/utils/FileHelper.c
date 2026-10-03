@@ -122,7 +122,9 @@ static void searchDirAndAddToChild(const char* dirToSearch, emu_file_data* child
 			.children = NULL,
 				.filename = NULL,
 				.filenameLength = 0,
-				.type = emu_file_type_unknown
+				.type = emu_file_type_unknown,
+				.fullFilepath = NULL,
+				.fullFilepathLength = 0,
 		};
 		return;
 	}
@@ -152,6 +154,8 @@ static void searchDirAndAddToChild(const char* dirToSearch, emu_file_data* child
 		.children = NULL,
 		.filename = g_strcpy(justTheFolderName),
 		.filenameLength = strlen(justTheFolderName),
+		.fullFilepath = g_strcpy(dirToSearch),
+		.fullFilepathLength = directoryLength,
 		.type = emu_file_type_directory
 	};
 
@@ -261,6 +265,12 @@ static void searchDirAndAddToChild(const char* dirToSearch, emu_file_data* child
 		data.filenameLength = strlen(filenameCopy);
 		data.type = emu_file_type_unknown;
 		data.extType = extType;
+		data.fullFilepathLength = data.filenameLength + directoryLength + 1;
+		data.fullFilepath = g_memory_allocate(data.fullFilepathLength + 1);
+		g_memory_copyMem(data.fullFilepath, (char*)dirToSearch, directoryLength);
+		data.fullFilepath[directoryLength] = '\\';
+		g_memory_copyMem(data.fullFilepath + directoryLength + 1, data.filename, data.filenameLength);
+		data.fullFilepath[data.fullFilepathLength] = '\0';
 
 		if (findData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
 		{
@@ -304,6 +314,7 @@ emu_file_data emu_file_getAllFilesInDirectory(const char* directory)
 			emu_file_data recursedChild = emu_file_getAllFilesInDirectory(recursedFilepath);
 			g_memory_free(child->filename);
 			g_memory_free(recursedFilepath);
+			g_memory_free(child->fullFilepath);
 			*child = recursedChild;
 		}
 	}

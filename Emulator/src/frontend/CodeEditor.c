@@ -37,7 +37,7 @@ typedef struct CodeEditorPanel
 	bool dirty;
 } CodeEditorPanel;
 
-static CodeEditorPanel* panels;
+static CodeEditorPanel* panels = NULL;
 
 // Declare the `tree_sitter_asm6502` function, which is
 // implemented by the `tree-sitter-asm6502` library.
@@ -54,7 +54,6 @@ static void freePanel(CodeEditorPanel* panel);
 
 void emu_CodeEditor_init()
 {
-	panels = NULL;
 }
 
 void emu_CodeEditor_free()
@@ -67,6 +66,17 @@ void emu_CodeEditor_free()
 
 void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 {
+	// First check to see if file is already opened and skip it if it is
+	for (int i = 0; i < stbds_arrlen(panels); i++)
+	{
+		CodeEditorPanel* panel = panels + i;
+		if (strcmp(panel->fullFilepath, fullFilepath) == 0)
+		{
+			g_logger_warning("TODO: Focus this editor panel. Not opening file '%s' because it's already opened.", panel->fullFilepath);
+			return;
+		}
+	}
+
 	CodeEditorPanel res = (CodeEditorPanel){ 0 };
 
 	size_t fullFilepathLength = strlen(fullFilepath);
@@ -87,10 +97,8 @@ void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 	res.filename[filenameLength] = '\0';
 	res.filenameLength = filenameLength;
 
-	res.fullFilepath = g_memory_allocate(fullFilepathLength + 1);
-	g_memory_copyMem(res.fullFilepath, (char*)fullFilepath, fullFilepathLength);
+	res.fullFilepath = g_strcpy(fullFilepath);
 	res.fullFilepathLength = fullFilepathLength;
-	res.fullFilepath[fullFilepathLength] = '\0';
 
 	emu_file file;
 	if (emu_file_read(fullFilepath, &file) == emu_fileResult_Success)

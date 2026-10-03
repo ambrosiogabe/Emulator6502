@@ -49,6 +49,8 @@ typedef struct emu_file_data
 	emu_file_type type;
 	char* filename;
 	size_t filenameLength;
+	char* fullFilepath;
+	size_t fullFilepathLength;
 	emu_file_data* children;
 } emu_file_data;
 
