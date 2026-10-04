@@ -45,7 +45,11 @@ const char* emu_Keywords[] = {
 	"beq",
 	"sec",
 	"sei",
+	"sed",
 	"clc",
+	"cld",
+	"cli",
+	"clv",
 	"jsr",
 	"bit",
 

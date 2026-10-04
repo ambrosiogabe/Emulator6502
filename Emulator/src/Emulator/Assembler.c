@@ -1168,7 +1168,11 @@ static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_IMPLICIT_OPCODE(RTS);
 		EMIT_IMPLICIT_OPCODE(SEC);
 		EMIT_IMPLICIT_OPCODE(SEI);
+		EMIT_IMPLICIT_OPCODE(SED);
 		EMIT_IMPLICIT_OPCODE(CLC);
+		EMIT_IMPLICIT_OPCODE(CLD);
+		EMIT_IMPLICIT_OPCODE(CLI);
+		EMIT_IMPLICIT_OPCODE(CLV);
 	default:
 		g_logger_error("Cannot emit implicit opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
@@ -1522,7 +1526,11 @@ static bool emu_expectImplicitCommand(emu_Assembler* assembler, emu_Token const*
 	case emu_Keyword_RTS:
 	case emu_Keyword_SEC:
 	case emu_Keyword_SEI:
+	case emu_Keyword_SED:
 	case emu_Keyword_CLC:
+	case emu_Keyword_CLD:
+	case emu_Keyword_CLI:
+	case emu_Keyword_CLV:
 		return true;
 	}
 
