@@ -50,7 +50,6 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_SEI_IMP = 0x78,
 	emu_vmInstruction_SED_IMP = 0xF8,
 	emu_vmInstruction_RTS_IMP = 0x60,
-	emu_vmInstruction_JSR_ABS = 0x20,
 	// -- OR instructions --
 	emu_vmInstruction_ORA_IMM = 0x09,
 	emu_vmInstruction_ORA_ZP = 0x05,
@@ -130,6 +129,8 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_LDA_ABX = 0xBD,
 	emu_vmInstruction_LDX_ABY = 0xBE,
 	// -- JMP instructions --
+	emu_vmInstruction_JSR_ABS = 0x20,
+	emu_vmInstruction_JMP_ABS = 0x4C,
 	emu_vmInstruction_JMP_IND = 0x6C,
 	// -- BIT instructions --
 	emu_vmInstruction_BIT_ZP = 0x24,

@@ -112,7 +112,6 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_SEI_IMP] = "SEI_IMP";
 	emu_vmInstructions[emu_vmInstruction_SED_IMP] = "SED_IMP";
 	emu_vmInstructions[emu_vmInstruction_RTS_IMP] = "RTS_IMP";
-	emu_vmInstructions[emu_vmInstruction_JSR_ABS] = "JSR_ABS";
 	// -- OR instructions --
 	emu_vmInstructions[emu_vmInstruction_ORA_IMM] = "ORA_IMM";
 	emu_vmInstructions[emu_vmInstruction_ORA_ZP] = "ORA_ZP";
@@ -192,6 +191,8 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_LDA_ABX] = "LDA_ABX";
 	emu_vmInstructions[emu_vmInstruction_LDX_ABY] = "LDX_ABY";
 	// -- JMP instructions --
+	emu_vmInstructions[emu_vmInstruction_JSR_ABS] = "JSR_ABS";
+	emu_vmInstructions[emu_vmInstruction_JMP_ABS] = "JMP_ABS";
 	emu_vmInstructions[emu_vmInstruction_JMP_IND] = "JMP_IND";
 	// -- BIT instructions --
 	emu_vmInstructions[emu_vmInstruction_BIT_ZP] = "BIT_ZP";
@@ -674,6 +675,15 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		pushToStack(vm, programCounter0);
 		pushToStack(vm, programCounter1);
 
+		vm->programCounter = globalAddress;
+	}
+	break;
+	case emu_vmInstruction_JMP_ABS:
+	{
+		uint8 address0 = getNext(vm);
+		uint8 address1 = getNext(vm);
+
+		uint16 globalAddress = ((uint16)address1 << 8) | address0;
 		vm->programCounter = globalAddress;
 	}
 	break;

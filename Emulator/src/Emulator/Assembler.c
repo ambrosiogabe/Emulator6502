@@ -735,7 +735,7 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			}
 			else if (argList->arg0.type == emu_ArgumentType_CheapLabel && argList->numArgs == 1)
 			{
-				emu_emitAbsoluteXOpcode(assembler, token);
+				emu_emitAbsoluteOpcode(assembler, token);
 				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, true);
 			}
 			else if (argList->arg0.type == emu_ArgumentType_Word && argList->numArgs == 1)
@@ -1270,6 +1270,7 @@ static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_ABSOLUTE_OPCODE(STY);
 		EMIT_ABSOLUTE_OPCODE(STX);
 		EMIT_ABSOLUTE_OPCODE(JSR);
+		EMIT_ABSOLUTE_OPCODE(JMP);
 		EMIT_ABSOLUTE_OPCODE(BIT);
 	default:
 		g_logger_error("Cannot emit absolute opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
@@ -1643,6 +1644,7 @@ static bool emu_expectAbsoluteCommandWithError(emu_Assembler* assembler, emu_Tok
 	case emu_Keyword_LDY:
 	case emu_Keyword_STY:
 	case emu_Keyword_JSR:
+	case emu_Keyword_JMP:
 	case emu_Keyword_BIT:
 		return true;
 	}

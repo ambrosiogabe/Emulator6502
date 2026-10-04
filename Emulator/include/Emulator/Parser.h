@@ -53,6 +53,7 @@ typedef enum emu_Keyword
 	emu_Keyword_CLI,
 	emu_Keyword_CLV,
 	emu_Keyword_JSR,
+	emu_Keyword_JMP,
 	emu_Keyword_BIT,
 
 	// Logical/Arithmetic commands

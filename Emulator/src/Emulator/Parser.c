@@ -51,6 +51,7 @@ const char* emu_Keywords[] = {
 	"cli",
 	"clv",
 	"jsr",
+	"jmp",
 	"bit",
 
 	// Logical/Arithmetic commands
