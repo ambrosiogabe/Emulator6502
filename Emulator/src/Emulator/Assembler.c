@@ -57,8 +57,8 @@ typedef enum emu_ArgumentType
 	emu_ArgumentType_Byte,
 	emu_ArgumentType_Word,
 	emu_ArgumentType_Label,
+	emu_ArgumentType_CheapLabel,
 	emu_ArgumentType_AnonymousLabel,
-	emu_ArgumentType_LocalLabel,
 	emu_ArgumentType_X,
 	emu_ArgumentType_Y
 } emu_ArgumentType;
@@ -83,6 +83,13 @@ typedef struct emu_ArgList
 	size_t numArgs;
 } emu_ArgList;
 
+typedef enum emu_SymbolType
+{
+	emu_SymbolType_Unknown = 0,
+	emu_SymbolType_Global,
+	emu_SymbolType_CheapLocal,
+} emu_SymbolType;
+
 typedef enum emu_PatchType
 {
 	emu_PatchType_RelativeJump,
@@ -105,7 +112,7 @@ typedef struct emu_PatchLocation
 	} as;
 	// Debug info
 	emu_Token const* token;
-	bool isPatched;
+	bool isCheap;
 } emu_PatchLocation;
 
 typedef struct emu_LabelData
@@ -115,6 +122,7 @@ typedef struct emu_LabelData
 	// The index of this label which lets us know where it falls in the order of labels
 	// This is used for unnamed labels and relative branching
 	uint16 index;
+	emu_SymbolType type;
 } emu_LabelData;
 
 typedef struct emu_Label
@@ -186,7 +194,9 @@ typedef struct emu_Assembler
 
 // Internal Functions
 static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char* filename);
-static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program);
+static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program, bool cheapLabelsOnly);
+static void emu_clearCheapLocalLabels(emu_ProgramData* program);
+static void emu_patchAndClearCheapLocals(emu_Assembler* assembler);
 static emu_LinkerError emu_linkProgram(emu_Assembler* assembler, emu_ProgramData* programs);
 static void emu_freeProgramData(emu_ProgramData* program);
 
@@ -195,6 +205,7 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Token const* token);
+static emu_StatementError parseCheapLocalLabel(emu_Assembler* assembler, emu_Token const* token);
 static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* token);
 static void freeArgList(emu_ArgList* argList);
 
@@ -204,6 +215,7 @@ static emu_StatementError emu_parseControlAddr(emu_Assembler* assembler);
 static emu_StatementError emu_parseControlExport(emu_Assembler* assembler);
 static emu_StatementError emu_parseControlImport(emu_Assembler* assembler);
 static emu_StatementError emu_parseProc(emu_Assembler* assembler);
+static emu_StatementError emu_handleEndProc(emu_Assembler* assembler);
 static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitImmediateOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* token);
@@ -214,8 +226,8 @@ static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
 static void emu_emitWord(emu_Assembler* assembler, uint16 word);
 static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
 static void emu_setWriteIndex(emu_Assembler* assembler, char* segmentName, uint8* indexStart, uint8* index, size_t indexSize);
-static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token);
-static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type);
+static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token, emu_SymbolType type);
+static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type, bool isCheap);
 static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assembler, int16 numberOfLabelsToJump, emu_Token const* debugToken);
 
 static bool isArgStart(emu_Assembler* assembler);
@@ -341,18 +353,24 @@ static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char*
 	// Only attempt to patch the program if we've reached the end of the file
 	if (error == emu_StatementError_EOF)
 	{
-		emu_patchProgram(assembler, &currentProgram);
+		emu_patchProgram(assembler, &currentProgram, false);
 	}
 
 	return currentProgram;
 }
 
-static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
+static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program, bool cheapLabelsOnly)
 {
 	// Patch all the needed patches
 	for (int i = 0; i < stbds_arrlen(program->patches); i++)
 	{
 		emu_PatchLocation* patch = program->patches + i;
+
+		// Don't attempt to patch non-cheap labels if we're explicitly parsing cheap labels only
+		if (cheapLabelsOnly && !patch->isCheap)
+		{
+			continue;
+		}
 
 		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
 		{
@@ -364,28 +382,31 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
 
 			if (stbds_shgeti(program->labels, patch->as.label) >= 0)
 			{
+				emu_Label* hashEntry = stbds_shgetp(program->labels, patch->as.label);
+				emu_LabelData* label = &hashEntry->value;
+				uint16 labelAddress = label->address;
+
 				if (patch->type == emu_PatchType_RelativeJump)
 				{
-					emu_LabelData label = stbds_shget(program->labels, patch->as.label);
-					uint16 labelAddress = label.address;
 					int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
 					patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
 					patch->writePtr[1] = (uint8)(relativeOffset >> 8);
-					patch->isPatched = true;
 				}
 				else if (patch->type == emu_PatchType_GlobalAddress)
 				{
-					emu_LabelData label = stbds_shget(program->labels, patch->as.label);
-					uint16 labelAddress = label.address;
 					patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
 					patch->writePtr[1] = (uint8)(labelAddress >> 8);
-					patch->isPatched = true;
 				}
 			}
 			else
 			{
-				emu_logError(assembler, patch->token, "Label not found '%s'.", patch->as.label);
+				emu_logError(assembler, patch->token, "Label not found. Symbol '%s' is undefined.", patch->as.label);
 			}
+
+			// After attempting to patch, we can remove this patch location since it's no longer needed
+			g_memory_free(patch->as.label);
+			stbds_arrdel(program->patches, i);
+			i--;
 		}
 		else if (patch->type == emu_PatchType_AnonymousJump)
 		{
@@ -401,14 +422,40 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
 				int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
 				patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
 				patch->writePtr[1] = (uint8)(relativeOffset >> 8);
-				patch->isPatched = true;
 			}
+
+			// After attempting to patch, we can remove this patch location since it's no longer needed
+			g_memory_free(patch->as.label);
+			stbds_arrdel(program->patches, i);
+			i--;
 		}
 		else
 		{
 			g_logger_error("Unable to handle patching this type of label %d", patch->type);
 		}
 	}
+}
+
+static void emu_clearCheapLocalLabels(emu_ProgramData* program)
+{
+	for (int i = 0; i < stbds_shlen(program->labels); i++)
+	{
+		emu_Label* hashEntry = program->labels + i;
+		if (hashEntry->value.type == emu_SymbolType_CheapLocal)
+		{
+			g_memory_free(hashEntry->key);
+			stbds_shdel(program->labels, hashEntry->key);
+			hashEntry->value = (emu_LabelData){ 0 };
+		}
+	}
+}
+
+static void emu_patchAndClearCheapLocals(emu_Assembler* assembler)
+{
+	// Try to patch any cheap local labels here
+	emu_patchProgram(assembler, assembler->currentProgram, true);
+	// After patching, delete the cheap locals since we've exited this scope
+	emu_clearCheapLocalLabels(assembler->currentProgram);
 }
 
 static emu_LinkerError emu_linkProgram(emu_Assembler* assembler, emu_ProgramData* programs)
@@ -422,10 +469,6 @@ static emu_LinkerError emu_linkProgram(emu_Assembler* assembler, emu_ProgramData
 		for (int j = 0; j < stbds_arrlen(program->patches); j++)
 		{
 			emu_PatchLocation* patch = program->patches + j;
-			if (patch->isPatched)
-			{
-				continue;
-			}
 
 			// If this label is not imported, we don't care about it here. We're only resolving
 			// imported labels during the linking phase
@@ -446,6 +489,7 @@ static emu_LinkerError emu_linkProgram(emu_Assembler* assembler, emu_ProgramData
 			if (patch->type == emu_PatchType_GlobalAddress)
 			{
 				// See if we can find the label in any of the other programs assembled
+				bool foundPatch = false;
 				for (int otherProgramIndex = 0; otherProgramIndex < stbds_arrlen(programs); otherProgramIndex++)
 				{
 					if (otherProgramIndex == i)
@@ -460,11 +504,12 @@ static emu_LinkerError emu_linkProgram(emu_Assembler* assembler, emu_ProgramData
 						uint16 labelAddress = label.address;
 						patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
 						patch->writePtr[1] = (uint8)(labelAddress >> 8);
-						patch->isPatched = true;
+						foundPatch = true;
+						break;
 					}
 				}
 
-				if (!patch->isPatched)
+				if (!foundPatch)
 				{
 					emu_logError(assembler, patch->token, "Label not found '%s'.", patch->as.label);
 					res = emu_LinkerError_LabelNotFound;
@@ -501,7 +546,10 @@ static void emu_freeProgramData(emu_ProgramData* program)
 
 	for (int i = 0; i < stbds_shlen(program->labels); i++)
 	{
-		g_memory_free(program->labels[i].key);
+		if (stbds_shgeti(program->labels, program->labels[i].key) >= 0)
+		{
+			g_memory_free(program->labels[i].key);
+		}
 	}
 
 	for (int i = 0; i < stbds_shlen(program->exportedLabels); i++)
@@ -540,9 +588,10 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 		return assembleInstruction(assembler, token);
 	case emu_TokenType_Symbol:
 		return parseLabel(assembler, token);
+	case emu_TokenType_CheapSymbol:
+		return parseCheapLocalLabel(assembler, token);
 	case emu_TokenType_Colon:
 		return parseAnonymousLabel(assembler, token);
-	case emu_TokenType_String:
 	case emu_TokenType_Comment:
 		return emu_StatementError_None;
 	case emu_TokenType_ControlCommand:
@@ -561,7 +610,7 @@ static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* 
 		return emu_StatementError_Invalid;
 	}
 
-	return emu_addLabel(assembler, token);
+	return emu_addLabel(assembler, token, emu_SymbolType_Global);
 }
 
 static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Token const* token)
@@ -591,6 +640,16 @@ static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Toke
 	}));
 
 	return emu_StatementError_None;
+}
+
+static emu_StatementError parseCheapLocalLabel(emu_Assembler* assembler, emu_Token const* token)
+{
+	if (!emu_expect(assembler, emu_TokenType_Colon))
+	{
+		return emu_StatementError_Invalid;
+	}
+
+	return emu_addLabel(assembler, token, emu_SymbolType_CheapLocal);
 }
 
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token)
@@ -642,7 +701,12 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			if (argList->arg0.type == emu_ArgumentType_Label)
 			{
 				emu_emitRelativeOpcode(assembler, token);
-				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_RelativeJump);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_RelativeJump, false);
+			}
+			else if (argList->arg0.type == emu_ArgumentType_CheapLabel)
+			{
+				emu_emitRelativeOpcode(assembler, token);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_RelativeJump, true);
 			}
 			else if (argList->arg0.type == emu_ArgumentType_AnonymousLabel)
 			{
@@ -667,7 +731,12 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			if (argList->arg0.type == emu_ArgumentType_Label && argList->numArgs == 1)
 			{
 				emu_emitAbsoluteOpcode(assembler, token);
-				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, false);
+			}
+			else if (argList->arg0.type == emu_ArgumentType_CheapLabel && argList->numArgs == 1)
+			{
+				emu_emitAbsoluteXOpcode(assembler, token);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, true);
 			}
 			else if (argList->arg0.type == emu_ArgumentType_Word && argList->numArgs == 1)
 			{
@@ -677,7 +746,12 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 			else if (argList->arg0.type == emu_ArgumentType_Label && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
 			{
 				emu_emitAbsoluteXOpcode(assembler, token);
-				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, false);
+			}
+			else if (argList->arg0.type == emu_ArgumentType_CheapLabel && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
+			{
+				emu_emitAbsoluteXOpcode(assembler, token);
+				emu_recordPatchLocation(assembler, argList->arg0.token, emu_PatchType_GlobalAddress, true);
 			}
 			else if (argList->arg0.type == emu_ArgumentType_Word && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
 			{
@@ -705,8 +779,7 @@ static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_T
 	switch (token->data.controlCommand)
 	{
 	case emu_ControlCommand_EndProc:
-		// TODO: Properly support this
-		return emu_StatementError_None;
+		return emu_handleEndProc(assembler);
 	case emu_ControlCommand_Proc:
 		// TODO: Properly support this
 		return emu_parseProc(assembler);
@@ -765,19 +838,22 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* toke
 		argList->mode = emu_AddressingMode_Absolute;
 	}
 	break;
+	case emu_TokenType_CheapSymbol:
 	case emu_TokenType_Symbol:
 	{
+		argList->arg0.type = argList->arg0.token->type == emu_TokenType_Symbol
+			? emu_ArgumentType_Label
+			: emu_ArgumentType_CheapLabel;
+
 		// Handle jumping to a symbol
 		if (emu_expectRelativeCommandWithError(assembler, token, false))
 		{
 			argList->mode = emu_AddressingMode_Relative;
-			argList->arg0.type = emu_ArgumentType_Label;
 		}
 		// Handle using a symbol as an address
 		else if (emu_expectAbsoluteCommandWithError(assembler, token, false))
 		{
 			argList->mode = emu_AddressingMode_Absolute;
-			argList->arg0.type = emu_ArgumentType_Label;
 		}
 		else
 		{
@@ -1003,7 +1079,7 @@ static emu_StatementError emu_parseControlAddr(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	return emu_recordPatchLocation(assembler, addrToken, emu_PatchType_GlobalAddress);
+	return emu_recordPatchLocation(assembler, addrToken, emu_PatchType_GlobalAddress, false);
 }
 
 static emu_StatementError emu_parseControlExport(emu_Assembler* assembler)
@@ -1043,7 +1119,13 @@ static emu_StatementError emu_parseProc(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	return emu_addLabel(assembler, addrToken);
+	return emu_addLabel(assembler, addrToken, emu_SymbolType_Global);
+}
+
+static emu_StatementError emu_handleEndProc(emu_Assembler* assembler)
+{
+	emu_patchAndClearCheapLocals(assembler);
+	return emu_StatementError_None;
 }
 
 static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler)
@@ -1252,12 +1334,17 @@ static void emu_setWriteIndex(emu_Assembler* assembler, char* segmentName, uint8
 	}
 }
 
-static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token)
+static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token, emu_SymbolType type)
 {
-	if (token->type != emu_TokenType_Symbol)
+	if (token->type != emu_TokenType_Symbol && token->type != emu_TokenType_CheapSymbol)
 	{
 		emu_logError(assembler, token, "Expected symbol. Instead got '%s'", emu_TokenTypes[token->type]);
 		return emu_StatementError_Invalid;
+	}
+
+	if (type == emu_SymbolType_Global)
+	{
+		emu_patchAndClearCheapLocals(assembler);
 	}
 
 	// Record location of label
@@ -1285,14 +1372,15 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 	stbds_shput(assembler->currentProgram->labels, label, ((emu_LabelData){
 		.address = prgAddress + assembler->mmap->as.nes.rom.start,
 			.index = labelIndex,
+			.type = type,
 	}));
 
 	return emu_StatementError_None;
 }
 
-static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type)
+static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type, bool isCheap)
 {
-	if (token->type != emu_TokenType_Symbol)
+	if (token->type != emu_TokenType_Symbol && token->type != emu_TokenType_CheapSymbol)
 	{
 		emu_logError(assembler, token, "Expected symbol. Instead got '%s'", emu_TokenTypes[token->type]);
 		return emu_StatementError_Invalid;
@@ -1308,7 +1396,7 @@ static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_
 		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 		.token = token,
 		.type = type,
-		.isPatched = false,
+		.isCheap = isCheap,
 	};
 
 	// Increment 2 bytes to save room for the patched location
@@ -1337,7 +1425,6 @@ static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assemb
 		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 		.token = debugToken,
 		.type = emu_PatchType_AnonymousJump,
-		.isPatched = false,
 	};
 
 	// Increment 2 bytes to save room for the patched location
@@ -1351,12 +1438,11 @@ static bool isArgStart(emu_Assembler* assembler)
 {
 	emu_TokenType type = peek(assembler);
 	emu_TokenType nextType = peekMulti(assembler, 1);
-	emu_TokenType nextNextType = peekMulti(assembler, 2);
 	return type == emu_TokenType_ByteConstant
 		|| type == emu_TokenType_ImmediateConstant
 		|| type == emu_TokenType_TwoByteConstant
 		|| (type == emu_TokenType_Symbol && nextType != emu_TokenType_Colon)
-		|| (type == emu_TokenType_AtSign && nextType == emu_TokenType_Symbol && nextNextType != emu_TokenType_Colon)
+		|| (type == emu_TokenType_CheapSymbol && nextType != emu_TokenType_Colon)
 		|| (type == emu_TokenType_Colon &&
 			(nextType == emu_TokenType_Plus
 				|| nextType == emu_TokenType_Minus

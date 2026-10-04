@@ -85,7 +85,7 @@ typedef enum emu_TokenType
 	emu_TokenType_String,
 	emu_TokenType_Character,
 	emu_TokenType_Comma,
-	emu_TokenType_AtSign,
+	emu_TokenType_CheapSymbol,
 	emu_TokenType_Plus,
 	emu_TokenType_Minus,
 	emu_TokenType_RightAngleBracket,

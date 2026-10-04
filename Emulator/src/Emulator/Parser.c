@@ -80,7 +80,7 @@ const char* emu_TokenTypes[] = {
 	"String",
 	"Character",
 	"Comma",
-	"AtSign",
+	"CheapSymbol",
 	"Plus",
 	"Minus",
 	"RightAngleBracket",
@@ -301,9 +301,6 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 	case ',':
 		emu_getChar(parser);
 		return emu_makeToken(emu_TokenType_Comma, start, parser->current, line, column, (emu_TokenData) { 0 });
-	case '@':
-		emu_getChar(parser);
-		return emu_makeToken(emu_TokenType_AtSign, start, parser->current, line, column, (emu_TokenData) { 0 });
 	case ':':
 		emu_getChar(parser);
 		return emu_makeToken(emu_TokenType_Colon, start, parser->current, line, column, (emu_TokenData) { 0 });
@@ -328,6 +325,11 @@ static emu_Token emu_parseToken(emu_Parser* parser)
 			{
 				parser->currentInstruction = instruction;
 				return emu_makeToken(emu_TokenType_Keyword, start, parser->current, line, column, (emu_TokenData) { .keyword = instruction });
+			}
+
+			if (c == '@') 
+			{
+				return emu_makeToken(emu_TokenType_CheapSymbol, start, parser->current, line, column, (emu_TokenData) { 0 });
 			}
 
 			return emu_makeToken(emu_TokenType_Symbol, start, parser->current, line, column, (emu_TokenData) { 0 });
@@ -361,6 +363,14 @@ static emu_Symbol emu_parseSymbol(emu_Parser* parser)
 		.length = 0
 	};
 	parser->lastSymbolStart = parser->current;
+
+	if (!emu_isSymbolStart(emu_peek(parser)))
+	{
+		g_logger_error("This should be impossible to reach.");
+		return symbol;
+	}
+
+	emu_getChar(parser);
 	while (emu_isSymbolChar(emu_peek(parser)))
 	{
 		emu_getChar(parser);
@@ -720,7 +730,7 @@ static bool emu_isWhitespace(char c)
 
 static bool emu_isSymbolStart(char c)
 {
-	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == '.';
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c == '_' || c == '.' || c == '@';
 }
 
 static bool emu_isSymbolChar(char c)
