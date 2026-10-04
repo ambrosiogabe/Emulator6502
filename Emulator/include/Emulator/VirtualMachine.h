@@ -201,9 +201,16 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_BCS_REL = 0xB0,
 	emu_vmInstruction_BNE_REL = 0xD0,
 	emu_vmInstruction_BEQ_REL = 0xF0,
+	// -- Transfer Instructions --
+	emu_vmInstruction_TAX_IMP = 0xAA,
+	emu_vmInstruction_TXA_IMP = 0x8A,
+	emu_vmInstruction_TAY_IMP = 0xA8,
+	emu_vmInstruction_TYA_IMP = 0x98,
+	emu_vmInstruction_TSX_IMP = 0xBA,
+	emu_vmInstruction_TXS_IMP = 0x9A,
 
 	// NOP that we'll use as a flag
-	emu_vmInstruction_ILLEGAL = 0xFA,
+	emu_vmInstruction_NOP = 0xEA,
 } emu_vmInstruction;
 
 typedef enum emu_vmError
@@ -211,7 +218,7 @@ typedef enum emu_vmError
 	emu_vmError_None = 0,
 	emu_vmError_NotEnoughROM,
 	emu_vmError_NullVm,
-	emu_vmError_IllegalOpcode,
+	emu_vmError_Nop,
 	emu_vmError_Break,
 } emu_vmError;
 

@@ -54,6 +54,14 @@ const char* emu_Keywords[] = {
 	"jmp",
 	"bit",
 
+	// Transfer commands
+	"tax",
+	"txa",
+	"tay",
+	"tya",
+	"tsx",
+	"txs",
+
 	// Logical/Arithmetic commands
 	"ora",
 	"and",

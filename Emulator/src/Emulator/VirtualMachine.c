@@ -263,9 +263,16 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_BCS_REL] = "BCS_REL";
 	emu_vmInstructions[emu_vmInstruction_BNE_REL] = "BNE_REL";
 	emu_vmInstructions[emu_vmInstruction_BEQ_REL] = "BEQ_REL";
+	// -- Transfer Instructions --
+	emu_vmInstructions[emu_vmInstruction_TAX_IMP] = "TAX_IMP";
+	emu_vmInstructions[emu_vmInstruction_TXA_IMP] = "TXA_IMP";
+	emu_vmInstructions[emu_vmInstruction_TAY_IMP] = "TAY_IMP";
+	emu_vmInstructions[emu_vmInstruction_TYA_IMP] = "TYA_IMP";
+	emu_vmInstructions[emu_vmInstruction_TSX_IMP] = "TSX_IMP";
+	emu_vmInstructions[emu_vmInstruction_TXS_IMP] = "TXS_IMP";
 
 	// NOP that we'll use as a flag
-	emu_vmInstructions[emu_vmInstruction_ILLEGAL] = "ILLEGAL OPCODE";
+	emu_vmInstructions[emu_vmInstruction_NOP] = "NOP_IMP";
 }
 
 void emu_vm_printOpcodes(uint8* program, size_t programSize)
@@ -439,9 +446,9 @@ emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm)
 emu_vmError emu_vm_tick(emu_virtualMachine* vm)
 {
 	emu_vmInstruction instruction = fetchInstruction(vm);
-	if (instruction == emu_vmInstruction_ILLEGAL)
+	if (instruction == emu_vmInstruction_NOP)
 	{
-		return emu_vmError_IllegalOpcode;
+		return emu_vmError_Nop;
 	}
 	else if (instruction == emu_vmInstruction_BRK)
 	{
@@ -634,6 +641,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Bit instructions
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_BIT_ZP, bitComparison);
 		INSTRUCTION_EXPANSION_LONG_RAM_VALUE(emu_vmInstruction_BIT_ABS, bitComparison);
+
+		// Rotate instructions
 	case emu_vmInstruction_ROR_IMP:
 		rotateRight(vm, instruction, UINT8_MAX);
 		break;
@@ -646,6 +655,33 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 	case emu_vmInstruction_ASL_IMP:
 		arithmeticShiftLeft(vm, instruction, UINT8_MAX);
 		break;
+
+		// Transfer operations
+	case emu_vmInstruction_TAX_IMP:
+		vm->xReg = vm->accumulatorReg;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->xReg);
+		break;
+	case emu_vmInstruction_TXA_IMP:
+		vm->accumulatorReg = vm->xReg;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
+		break;
+	case emu_vmInstruction_TAY_IMP:
+		vm->yReg = vm->accumulatorReg;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->yReg);
+		break;
+	case emu_vmInstruction_TYA_IMP:
+		vm->accumulatorReg = vm->yReg;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->accumulatorReg);
+		break;
+	case emu_vmInstruction_TSX_IMP:
+		vm->xReg = vm->stackPointer;
+		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, vm->xReg);
+		break;
+	case emu_vmInstruction_TXS_IMP:
+		vm->stackPointer = vm->xReg;
+		break;
+
+		// Increment/decrement operations
 	case emu_vmInstruction_DEX_IMP:
 		vm->xReg--;
 		checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->xReg);
@@ -662,6 +698,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		vm->yReg++;
 		checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, vm->yReg);
 		break;
+
+		// Jump instructions
 	case emu_vmInstruction_JSR_ABS:
 	{
 		uint8 address0 = getNext(vm);
@@ -698,7 +736,7 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 	}
 	break;
 
-	// Special
+	// Set/Clear status flags
 	case emu_vmInstruction_CLC_IMP:
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
 		break;
@@ -728,7 +766,7 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 
 static uint8 getNext(emu_virtualMachine* vm)
 {
-	uint8 nextInstruction = emu_vmInstruction_ILLEGAL;
+	uint8 nextInstruction = emu_vmInstruction_NOP;
 	if (vm->programCounter < vm->mmap.physicalMemorySize)
 	{
 		nextInstruction = emu_mmap_getNesAddress(&vm->mmap, vm->programCounter)[0];

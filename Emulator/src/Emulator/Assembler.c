@@ -1173,6 +1173,12 @@ static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_IMPLICIT_OPCODE(CLD);
 		EMIT_IMPLICIT_OPCODE(CLI);
 		EMIT_IMPLICIT_OPCODE(CLV);
+		EMIT_IMPLICIT_OPCODE(TAX);
+		EMIT_IMPLICIT_OPCODE(TXA);
+		EMIT_IMPLICIT_OPCODE(TAY);
+		EMIT_IMPLICIT_OPCODE(TYA);
+		EMIT_IMPLICIT_OPCODE(TSX);
+		EMIT_IMPLICIT_OPCODE(TXS);
 	default:
 		g_logger_error("Cannot emit implicit opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
@@ -1532,6 +1538,12 @@ static bool emu_expectImplicitCommand(emu_Assembler* assembler, emu_Token const*
 	case emu_Keyword_CLD:
 	case emu_Keyword_CLI:
 	case emu_Keyword_CLV:
+	case emu_Keyword_TAX:
+	case emu_Keyword_TXA:
+	case emu_Keyword_TAY:
+	case emu_Keyword_TYA:
+	case emu_Keyword_TSX:
+	case emu_Keyword_TXS:
 		return true;
 	}
 

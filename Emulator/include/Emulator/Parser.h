@@ -56,6 +56,14 @@ typedef enum emu_Keyword
 	emu_Keyword_JMP,
 	emu_Keyword_BIT,
 
+	// Transfer commands
+	emu_Keyword_TAX,
+	emu_Keyword_TXA,
+	emu_Keyword_TAY,
+	emu_Keyword_TYA,
+	emu_Keyword_TSX,
+	emu_Keyword_TXS,
+
 	// Logical/Arithmetic commands
 	emu_Keyword_ORA,
 	emu_Keyword_AND,

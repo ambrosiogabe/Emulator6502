@@ -368,10 +368,17 @@ static void hexMemoryViewer(emu_app* app)
 	}
 
 	ImGui_Text("A: 0x%02X", vm->accumulatorReg);
+	ImGui_SetItemTooltip("Accumulator register. Used for storing results of mathematical/logical operations.");
 	ImGui_SameLine();
 
 	ImGui_Text("X: 0x%02X", vm->xReg);
+	ImGui_SetItemTooltip("X register. Used for storing information.");
 	ImGui_SameLine();
 
 	ImGui_Text("Y: 0x%02X", vm->yReg);
+	ImGui_SetItemTooltip("Y register. Used for storing information.");
+	ImGui_SameLine();
+
+	ImGui_Text("SP: 0x%02X", vm->stackPointer);
+	ImGui_SetItemTooltip("Stack pointer. The stack points to 0x1ff - SP.");
 }
