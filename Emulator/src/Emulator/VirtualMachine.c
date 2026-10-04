@@ -35,6 +35,7 @@ static void arithmeticShiftLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8
 static void rotateLeft(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void logicalShiftRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
 static void rotateRight(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
+static void bitComparison(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
 
 static void checkFlagStatuses(emu_virtualMachine* vm, uint8 flagsToCheck, uint8 value);
 static void checkOverflowFlag(emu_virtualMachine* vm, int16 value);
@@ -52,6 +53,16 @@ case caseName:\
 {\
   uint8 address = getNext(vm);\
   function(vm, instruction, emu_mmap_getNesAddress(&vm->mmap, address)[0]);\
+}\
+break
+
+#define INSTRUCTION_EXPANSION_LONG_RAM_VALUE(caseName, function) \
+case caseName:\
+{\
+  uint8 lo = getNext(vm);\
+  uint8 hi = getNext(vm);\
+  uint16 globalAddress = (hi << 8) | lo;\
+  function(vm, instruction, emu_mmap_getNesAddress(&vm->mmap, globalAddress)[0]);\
 }\
 break
 
@@ -177,6 +188,9 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_LDX_ABY] = "LDX_ABY";
 	// -- JMP instructions --
 	emu_vmInstructions[emu_vmInstruction_JMP_IND] = "JMP_IND";
+	// -- BIT instructions --
+	emu_vmInstructions[emu_vmInstruction_BIT_ZP] = "BIT_ZP";
+	emu_vmInstructions[emu_vmInstruction_BIT_ABS] = "BIT_ABS";
 	// -- Compare instructions --
 	emu_vmInstructions[emu_vmInstruction_CMP_IZX] = "CMP_IZX";
 	emu_vmInstructions[emu_vmInstruction_CMP_ZP] = "CMP_ZP";
@@ -477,7 +491,7 @@ uint8 emu_vm_instructionNumArgs(emu_vmInstruction instruction)
 		}
 		underscorePtr = fullInstructionTxt + i;
 	}
-	
+
 	int suffixLength = (int)(fullInstructionTxt + fullInstructionTxtLen - underscorePtr);
 	if (suffixLength >= 4)
 	{
@@ -567,6 +581,7 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		// Store absolute
 		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STA_ABX, storeAbsRamValue);
 		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STA_ABS, storeAbsRamValue);
+		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STX_ABS, storeAbsRamValue);
 		// Add with carry
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ADC_ZP, addWithCarry);
 		INSTRUCTION_EXPANSION(emu_vmInstruction_ADC_IMM, addWithCarry);
@@ -610,6 +625,9 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		BRANCH_ON_NOT_STATUS_SET(emu_vmInstruction_BVC_REL, Overflow);
 		BRANCH_ON_NOT_STATUS_SET(emu_vmInstruction_BCC_REL, Carry);
 		BRANCH_ON_NOT_STATUS_SET(emu_vmInstruction_BNE_REL, Zero);
+		// Bit instructions
+		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_BIT_ZP, bitComparison);
+		INSTRUCTION_EXPANSION_LONG_RAM_VALUE(emu_vmInstruction_BIT_ABS, bitComparison);
 	case emu_vmInstruction_ROR_IMP:
 		rotateRight(vm, instruction, UINT8_MAX);
 		break;
@@ -794,6 +812,9 @@ static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 		break;
 	case emu_vmInstruction_STA_ABS:
 		baseAddress[0] = vm->accumulatorReg;
+		break;
+	case emu_vmInstruction_STX_ABS:
+		baseAddress[0] = vm->xReg;
 		break;
 	default:
 		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);
@@ -1018,6 +1039,36 @@ static void rotateRight(emu_virtualMachine* vm, emu_vmInstruction instruction, u
 		*ramPtr = *ramPtr >> 1;
 		*ramPtr |= (oldCarry << 7);
 		checkFlagStatuses(vm, emu_vmStatus_Negative | emu_vmStatus_Zero, *ramPtr);
+	}
+}
+
+static void bitComparison(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value)
+{
+	if (value & 0b10000000)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Negative);
+	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Negative);
+	}
+
+	if (value & 0b01000000)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Overflow);
+	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Overflow);
+	}
+
+	if ((value & vm->accumulatorReg) == 0)
+	{
+		emu_vm_setStatus(vm, emu_vmStatus_Zero);
+	}
+	else
+	{
+		emu_vm_clearStatus(vm, emu_vmStatus_Zero);
 	}
 }
 

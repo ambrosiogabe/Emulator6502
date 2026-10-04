@@ -104,10 +104,6 @@ ImGuiContext* emu_cimgui_init(emu_app* app, emu_sdl_wrapper* sdl)
 	emu_ConsoleOutput_init();
 	emu_FileExplorer_init(app->data.projectDirectory);
 
-	emu_ConsoleOutput_info("This is a test");
-	emu_ConsoleOutput_warn("This is a test with formatting: '%s'", "I'm formatted here.");
-	emu_ConsoleOutput_error("%d:%d:%d", 11, 22, 33);
-
 	return ctx;
 }
 

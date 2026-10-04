@@ -126,6 +126,9 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_LDX_ABY = 0xBE,
 	// -- JMP instructions --
 	emu_vmInstruction_JMP_IND = 0x6C,
+	// -- BIT instructions --
+	emu_vmInstruction_BIT_ZP = 0x24,
+	emu_vmInstruction_BIT_ABS = 0x2C,
 	// -- Compare instructions --
 	emu_vmInstruction_CMP_IZX = 0xC1,
 	emu_vmInstruction_CMP_ZP = 0xC5,

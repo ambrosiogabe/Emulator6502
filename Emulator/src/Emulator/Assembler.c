@@ -1217,6 +1217,7 @@ static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_ZERO_PAGE_OPCODE(STX);
 		EMIT_ZERO_PAGE_OPCODE(LDY);
 		EMIT_ZERO_PAGE_OPCODE(STY);
+		EMIT_ZERO_PAGE_OPCODE(BIT);
 	default:
 		g_logger_error("Cannot emit zero page opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
@@ -1264,6 +1265,7 @@ static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_ABSOLUTE_OPCODE(STY);
 		EMIT_ABSOLUTE_OPCODE(STX);
 		EMIT_ABSOLUTE_OPCODE(JSR);
+		EMIT_ABSOLUTE_OPCODE(BIT);
 	default:
 		g_logger_error("Cannot emit absolute opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
 	}
@@ -1572,6 +1574,7 @@ static bool emu_expectZeroPageCommand(emu_Assembler* assembler, emu_Token const*
 	case emu_Keyword_STX:
 	case emu_Keyword_LDY:
 	case emu_Keyword_STY:
+	case emu_Keyword_BIT:
 		return true;
 	}
 
@@ -1630,6 +1633,7 @@ static bool emu_expectAbsoluteCommandWithError(emu_Assembler* assembler, emu_Tok
 	case emu_Keyword_LDY:
 	case emu_Keyword_STY:
 	case emu_Keyword_JSR:
+	case emu_Keyword_BIT:
 		return true;
 	}
 

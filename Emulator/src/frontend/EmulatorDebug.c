@@ -41,7 +41,7 @@ void emu_EmulatorDebug_beginDebugging(emu_app* app)
 	mmap = &app->vm->mmap;
 	mmapNumRows = calculateNumRows();
 	shouldSeekAddress = true;
-	addressToSeek = mmap->as.nes.rom.start;
+	addressToSeek = app->vm->programCounter;
 }
 
 void emu_EmulatorDebug_endDebugging()
