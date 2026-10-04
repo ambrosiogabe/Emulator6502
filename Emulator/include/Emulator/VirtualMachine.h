@@ -50,6 +50,7 @@ typedef enum emu_vmInstruction
 	emu_vmInstruction_SEI_IMP = 0x78,
 	emu_vmInstruction_SED_IMP = 0xF8,
 	emu_vmInstruction_RTS_IMP = 0x60,
+	emu_vmInstruction_RTI_IMP = 0x40,
 	// -- OR instructions --
 	emu_vmInstruction_ORA_IMM = 0x09,
 	emu_vmInstruction_ORA_ZP = 0x05,
@@ -243,11 +244,12 @@ typedef struct emu_virtualMachine
 	uint8 yReg;
 	uint8 statusReg;
 	uint8 stackPointer;
+	uint64 cycleCount;
 
 	emu_MemoryMap mmap;
 } emu_virtualMachine;
 
-void emu_vm_initDebug();
+void emu_vm_initMeta();
 void emu_vm_printOpcodes(uint8* program, size_t programSize);
 void emu_vm_printStatusFlags(emu_virtualMachine* vm);
 void emu_vm_printRam(emu_virtualMachine* vm, uint16 address, uint16 numBytes);

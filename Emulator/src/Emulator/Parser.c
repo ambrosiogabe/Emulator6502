@@ -33,6 +33,7 @@ const char* emu_Keywords[] = {
 
 
 	"rts",
+	"rti",
 
 	// Jump/Flag commands
 	"bpl",

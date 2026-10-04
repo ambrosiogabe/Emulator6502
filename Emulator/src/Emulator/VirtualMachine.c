@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
+// TODO: Run emulator CPU on separate thread so we can achieve a speed of updating much faster than 1 instruction per 1/60 of a second
+#define NTSC_VBLANK_CYCLE 100 // 29'780.0f
+#define PAL_VBLANK_CYCLE 100 // 33'247.5f
+
 // --------------- Internal Structures --------------- 
 typedef struct VmInstruction
 {
@@ -17,6 +21,8 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 static uint8 getNext(emu_virtualMachine* vm);
 static void pushToStack(emu_virtualMachine* vm, uint8 byte);
 static uint8 popFromStack(emu_virtualMachine* vm);
+static void jumpToNonMaskableInterrupt(emu_virtualMachine* vm);
+static void returnFromNonMaskableInterrupt(emu_virtualMachine* vm);
 
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
@@ -95,9 +101,11 @@ break
 #define BRANCH_ON_NOT_STATUS_SET(caseName, status) BRANCH_ON_STATUS_SET_BASE(caseName, status, !)
 
 const char* emu_vmInstructions[EMU_MAX_INSTRUCTION_OPCODE + 1] = { 0 };
+uint8 emu_instructionCycleCount[EMU_MAX_INSTRUCTION_OPCODE + 1] = { 0 };
 
-void emu_vm_initDebug()
+void emu_vm_initMeta()
 {
+	// Initialize debug text
 	for (size_t i = 0; i < EMU_MAX_INSTRUCTION_OPCODE; i++)
 	{
 		emu_vmInstructions[i] = "NULL";
@@ -273,6 +281,179 @@ void emu_vm_initDebug()
 
 	// NOP that we'll use as a flag
 	emu_vmInstructions[emu_vmInstruction_NOP] = "NOP_IMP";
+
+	// Initialize cycle count for all instructions
+	emu_instructionCycleCount[emu_vmInstruction_BRK] = 7;
+	emu_instructionCycleCount[emu_vmInstruction_CLC_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_CLI_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_CLD_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_CLV_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_SEC_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_SEI_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_SED_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_RTS_IMP] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_RTI_IMP] = 6;
+	// -- OR instructions --
+	emu_instructionCycleCount[emu_vmInstruction_ORA_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_ORA_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_ORA_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_ORA_IZY] = 5; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_ORA_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_ORA_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_ORA_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_ORA_IZX] = 6;
+	// -- AND instructions --
+	emu_instructionCycleCount[emu_vmInstruction_AND_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_AND_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_AND_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_AND_IZX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_AND_IZY] = 5; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_AND_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_AND_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_AND_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	// -- XOR instructions --
+	emu_instructionCycleCount[emu_vmInstruction_EOR_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_EOR_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_EOR_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_EOR_IZX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_EOR_IZY] = 5; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_EOR_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_EOR_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_EOR_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	// -- ADC instructions --
+	emu_instructionCycleCount[emu_vmInstruction_ADC_IZX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_ADC_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_ADC_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_ADC_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_ADC_IZY] = 5; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_ADC_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_ADC_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_ADC_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	// -- SBC Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_SBC_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_SBC_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_SBC_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_SBC_IZX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_SBC_IZY] = 5; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_SBC_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_SBC_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_SBC_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	// -- Store Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_STA_IZX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_STA_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_STA_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_STA_IZY] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_STA_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_STA_ABY] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_STA_ABX] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_STY_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_STY_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_STY_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_STX_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_STX_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_STX_ZPY] = 4;
+	// -- Load Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_LDA_IZX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_LDA_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_LDA_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_LDA_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_LDA_IZY] = 5; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_LDA_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_LDA_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_LDA_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_LDX_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_LDX_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_LDX_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_LDX_ZPY] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_LDX_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_LDY_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_LDY_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_LDY_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_LDY_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_LDY_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	// -- JMP instructions --
+	emu_instructionCycleCount[emu_vmInstruction_JSR_ABS] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_JMP_ABS] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_JMP_IND] = 5; // TODO: For CMOS add 1 to cycle if address is at page boundary
+	// -- BIT instructions --
+	emu_instructionCycleCount[emu_vmInstruction_BIT_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_BIT_ABS] = 4;
+	// -- Compare instructions --
+	emu_instructionCycleCount[emu_vmInstruction_CMP_IZX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_CMP_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_CMP_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_CMP_ABS] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_CMP_IZY] = 5; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_CMP_ZPX] = 4;
+	emu_instructionCycleCount[emu_vmInstruction_CMP_ABY] = 4; // TODO: Add one cycle if page boundary is crossed
+	emu_instructionCycleCount[emu_vmInstruction_CMP_ABX] = 4; // TODO: Add one cycle if page boundary is crossed
+	// -- CPX (Compare X) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_CPX_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_CPX_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_CPX_ABS] = 4;
+	// -- CPY (Compare Y) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_CPY_IMM] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_CPY_ZP] = 3;
+	emu_instructionCycleCount[emu_vmInstruction_CPY_ABS] = 4;
+	// -- DEC Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_DEC_ZP] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_DEC_ZPX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_DEC_ABS] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_DEC_ABX] = 7;
+	// -- DEX/DEY (Decrement X/Y) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_DEX_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_DEY_IMP] = 2;
+	// -- INC Instructions
+	emu_instructionCycleCount[emu_vmInstruction_INC_ZP] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_INC_ZPX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_INC_ABS] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_INC_ABX] = 7;
+	// -- INX/INY (Increment X/Y) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_INX_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_INY_IMP] = 2;
+	// -- ASL (Arithmetic Shift Left) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_ASL_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_ASL_ZP] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_ASL_ZPX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_ASL_ABS] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_ASL_ABX] = 7;
+	// -- ROL (Rotate Left) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_ROL_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_ROL_ZP] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_ROL_ZPX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_ROL_ABS] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_ROL_ABX] = 7;
+	// -- LSR (Logical Shift Right) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_LSR_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_LSR_ZP] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_LSR_ZPX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_LSR_ABS] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_LSR_ABX] = 7;
+	// -- ROR (Rotate Right) Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_ROR_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_ROR_ZP] = 5;
+	emu_instructionCycleCount[emu_vmInstruction_ROR_ZPX] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_ROR_ABS] = 6;
+	emu_instructionCycleCount[emu_vmInstruction_ROR_ABX] = 7;
+	// -- Branch instructions --
+	emu_instructionCycleCount[emu_vmInstruction_BPL_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	emu_instructionCycleCount[emu_vmInstruction_BMI_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	emu_instructionCycleCount[emu_vmInstruction_BVC_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	emu_instructionCycleCount[emu_vmInstruction_BVS_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	emu_instructionCycleCount[emu_vmInstruction_BCC_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	emu_instructionCycleCount[emu_vmInstruction_BCS_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	emu_instructionCycleCount[emu_vmInstruction_BNE_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	emu_instructionCycleCount[emu_vmInstruction_BEQ_REL] = 2; // Add 1 to cycle if branch is on same page. Add 2 if branch is to different page.
+	// -- Transfer Instructions --
+	emu_instructionCycleCount[emu_vmInstruction_TAX_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_TXA_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_TAY_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_TYA_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_TSX_IMP] = 2;
+	emu_instructionCycleCount[emu_vmInstruction_TXS_IMP] = 2;
+
+	// NOP that we'll use as a flag
+	emu_instructionCycleCount[emu_vmInstruction_NOP] = 2;
 }
 
 void emu_vm_printOpcodes(uint8* program, size_t programSize)
@@ -373,6 +554,7 @@ emu_virtualMachine emu_vm_sizedInit(size_t physicalMemorySize, emu_vmType vmType
 		.yReg = 0,
 		.statusReg = 0,
 		.stackPointer = 0,
+		.cycleCount = 0,
 
 		.mmap = memoryMap,
 	};
@@ -455,6 +637,20 @@ emu_vmError emu_vm_tick(emu_virtualMachine* vm)
 		return emu_vmError_Break;
 	}
 	executeInstruction(vm, instruction);
+
+	// TODO: Add special case handling for page boundary crossing
+	vm->cycleCount += emu_instructionCycleCount[instruction];
+
+	// TODO: Make PAL vs NTSC timings configurable via editor
+	static bool done = false;
+	if (!done && vm->cycleCount >= PAL_VBLANK_CYCLE)
+	{
+		// Trigger NMI, right now we don't actually display anything to the screen, but we will eventually
+		// When we trigger an NMI, we need to set bit 7 of $2002 to 1
+		vm->mmap.physicalMemory[0x2002] = 0b010000000;
+		jumpToNonMaskableInterrupt(vm);
+		done = true;
+	}
 
 	return emu_vmError_None;
 }
@@ -735,8 +931,11 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		vm->programCounter = globalAddress;
 	}
 	break;
+	case emu_vmInstruction_RTI_IMP:
+		returnFromNonMaskableInterrupt(vm);
+		break;
 
-	// Set/Clear status flags
+		// Set/Clear status flags
 	case emu_vmInstruction_CLC_IMP:
 		emu_vm_clearStatus(vm, emu_vmStatus_Carry);
 		break;
@@ -800,6 +999,47 @@ static uint8 popFromStack(emu_virtualMachine* vm)
 	uint8 res = stack[vm->stackPointer + 1];
 	vm->stackPointer++;
 	return res;
+}
+
+static void jumpToNonMaskableInterrupt(emu_virtualMachine* vm)
+{
+	// First fetch the nmi address from our hardware vectors
+	uint8* nmiVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
+	uint8 address0 = nmiVectorPtr[0];
+	uint8 address1 = nmiVectorPtr[1];
+
+	uint16 globalNmiAddress = ((uint16)address1 << 8) | address0;
+
+	// Store current program counter to our stack
+	uint8 programCounter0 = vm->programCounter & 0xFF;
+	uint8 programCounter1 = (vm->programCounter >> 8) & 0xFF;
+	pushToStack(vm, programCounter0);
+	pushToStack(vm, programCounter1);
+
+	// Push the status register to the stack
+	pushToStack(vm, vm->statusReg);
+
+	// Set interrupt flag
+	emu_vm_setStatus(vm, emu_vmStatus_InterruptDisable);
+
+	// Jump to the nmi location
+	vm->programCounter = globalNmiAddress;
+}
+
+static void returnFromNonMaskableInterrupt(emu_virtualMachine* vm)
+{
+	// Get saved status register from stack
+	uint8 statusReg = popFromStack(vm);
+	vm->statusReg = statusReg;
+
+	// Get saved address from stack
+	uint8 address1 = popFromStack(vm);
+	uint8 address0 = popFromStack(vm);
+
+	uint16 globalAddress = ((uint16)address1 << 8) | address0;
+	vm->programCounter = globalAddress;
+
+	emu_vm_clearStatus(vm, emu_vmStatus_InterruptDisable);
 }
 
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction)

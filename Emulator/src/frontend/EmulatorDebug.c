@@ -320,6 +320,11 @@ static void hexMemoryViewer(emu_app* app)
 		app->isDebugging = false;
 	}
 
+	if (ImGui_Button("Break"))
+	{
+		app->isDebugging = true;
+	}
+
 	if (ImGui_BeginChild("Status Flags", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0))
 	{
 		ImGui_BeginDisabled(true);

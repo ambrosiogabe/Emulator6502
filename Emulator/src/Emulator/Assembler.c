@@ -1166,6 +1166,7 @@ static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* to
 		EMIT_IMPLICIT_OPCODE(LSR);
 		EMIT_IMPLICIT_OPCODE(ROR);
 		EMIT_IMPLICIT_OPCODE(RTS);
+		EMIT_IMPLICIT_OPCODE(RTI);
 		EMIT_IMPLICIT_OPCODE(SEC);
 		EMIT_IMPLICIT_OPCODE(SEI);
 		EMIT_IMPLICIT_OPCODE(SED);
@@ -1531,6 +1532,7 @@ static bool emu_expectImplicitCommand(emu_Assembler* assembler, emu_Token const*
 	case emu_Keyword_LSR:
 	case emu_Keyword_ROR:
 	case emu_Keyword_RTS:
+	case emu_Keyword_RTI:
 	case emu_Keyword_SEC:
 	case emu_Keyword_SEI:
 	case emu_Keyword_SED:

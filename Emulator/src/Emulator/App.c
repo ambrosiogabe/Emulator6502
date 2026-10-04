@@ -122,7 +122,7 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 	emu_debugger* debugger = (emu_debugger*)g_memory_allocate(sizeof(emu_debugger));
 	emu_virtualMachine* vm = (emu_virtualMachine*)g_memory_allocate(sizeof(emu_virtualMachine));
 
-	emu_vm_initDebug();
+	emu_vm_initMeta();
 	emu_SyntaxHighlighter_init();
 	*debugger = emu_debugger_init();
 	*vm = emu_vm_init(emu_vmType_NES);

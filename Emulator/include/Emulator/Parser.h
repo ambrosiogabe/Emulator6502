@@ -35,6 +35,7 @@ typedef enum emu_Keyword
 	emu_Keyword_STA,
 
 	emu_Keyword_RTS,
+	emu_Keyword_RTI,
 
 	// Jump/Flag commands
 	emu_Keyword_BPL,
