@@ -105,14 +105,8 @@ typedef struct emu_PatchLocation
 	} as;
 	// Debug info
 	emu_Token const* token;
+	bool isPatched;
 } emu_PatchLocation;
-
-typedef enum emu_LabelType
-{
-	emu_LabelType_Global,
-	emu_LabelType_Exported,
-	emu_LabelType_Imported
-} emu_LabelType;
 
 typedef struct emu_LabelData
 {
@@ -121,7 +115,6 @@ typedef struct emu_LabelData
 	// The index of this label which lets us know where it falls in the order of labels
 	// This is used for unnamed labels and relative branching
 	uint16 index;
-	emu_LabelType type;
 } emu_LabelData;
 
 typedef struct emu_Label
@@ -138,6 +131,12 @@ typedef enum emu_StatementError
 	emu_StatementError_EOF
 } emu_StatementError;
 
+typedef enum emu_LinkerError
+{
+	emu_LinkerError_None = 0,
+	emu_LinkerError_LabelNotFound,
+} emu_LinkerError;
+
 typedef struct emu_MemorySegment
 {
 	size_t currentOffset;
@@ -151,6 +150,12 @@ typedef struct emu_MemorySegmentMap
 	emu_MemorySegment value;
 } emu_MemorySegmentMap;
 
+typedef struct StringSet
+{
+	char* key;
+	uint8 value;
+} StringSet;
+
 typedef struct emu_ProgramData
 {
 	const char* file;
@@ -159,8 +164,8 @@ typedef struct emu_ProgramData
 	size_t current;
 
 	emu_Label* labels;
-	emu_Label* exportedLabels;
-	emu_Label* importedLabels;
+	StringSet* exportedLabels;
+	StringSet* importedLabels;
 	emu_PatchLocation* patches;
 	emu_StatementError exitCode;
 } emu_ProgramData;
@@ -182,6 +187,7 @@ typedef struct emu_Assembler
 // Internal Functions
 static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char* filename);
 static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program);
+static emu_LinkerError emu_linkProgram(emu_Assembler* assembler, emu_ProgramData* programs);
 static void emu_freeProgramData(emu_ProgramData* program);
 
 static emu_StatementError assembleNextStatement(emu_Assembler* assembler);
@@ -208,7 +214,7 @@ static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
 static void emu_emitWord(emu_Assembler* assembler, uint16 word);
 static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
 static void emu_setWriteIndex(emu_Assembler* assembler, char* segmentName, uint8* indexStart, uint8* index, size_t indexSize);
-static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token, emu_LabelType type);
+static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type);
 static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assembler, int16 numberOfLabelsToJump, emu_Token const* debugToken);
 
@@ -250,9 +256,18 @@ emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* 
 	assembler.writeIndexStart = assembler.writeIndex;
 	assembler.writeIndexSize = programSize;
 
+	emu_ProgramData* assembledPrograms = NULL;
 	for (size_t i = 0; i < numFiles; i++)
 	{
-		emu_assembleProgram(&assembler, files[i]);
+		emu_ProgramData data = emu_assembleProgram(&assembler, files[i]);
+		stbds_arrpush(assembledPrograms, data);
+	}
+
+	// Now that we have all assembled programs, attempt to do any final patching with imported labels
+	emu_LinkerError linkerResult = emu_linkProgram(&assembler, assembledPrograms);
+	if (linkerResult != emu_LinkerError_None)
+	{
+		// TODO: Do something about this...
 	}
 
 	// Free the segment maps
@@ -261,6 +276,13 @@ emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* 
 		g_memory_free(assembler.segmentMap[i].key);
 	}
 	stbds_shfree(assembler.segmentMap);
+
+	// Free assembled programs
+	for (int i = 0; i < stbds_arrlen(assembledPrograms); i++)
+	{
+		emu_freeProgramData(assembledPrograms + i);
+	}
+	stbds_arrfree(assembledPrograms);
 
 	size_t romvSize = emu_mmap_getSize(assembler.mmap->as.nes.romv);
 	size_t headerSize = emu_mmap_getSize(assembler.mmap->as.nes.header);
@@ -296,9 +318,11 @@ void emu_assembler_free(emu_assembler_program* program)
 static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char* filename)
 {
 	emu_TokenList tokenList = emu_parser_parseFile(filename);
+	emu_TokenList* tokenListCopy = g_memory_allocate(sizeof(emu_TokenList));
+	g_memory_copyMem(tokenListCopy, &tokenList, sizeof(emu_TokenList));
 	emu_ProgramData currentProgram = {
 		.current = 0,
-		.tokenList = &tokenList,
+		.tokenList = tokenListCopy,
 		.labels = NULL,
 		.exportedLabels = NULL,
 		.importedLabels = NULL,
@@ -314,12 +338,11 @@ static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char*
 	}
 	currentProgram.exitCode = error;
 
-	if (error == emu_StatementError_None)
+	// Only attempt to patch the program if we've reached the end of the file
+	if (error == emu_StatementError_EOF)
 	{
 		emu_patchProgram(assembler, &currentProgram);
 	}
-
-	emu_freeProgramData(&currentProgram);
 
 	return currentProgram;
 }
@@ -333,6 +356,12 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
 
 		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
 		{
+			// If this is an imported label, skip it. We'll resolve this during the linking phase
+			if (stbds_shgeti(program->importedLabels, patch->as.label) >= 0)
+			{
+				continue;
+			}
+
 			if (stbds_shgeti(program->labels, patch->as.label) >= 0)
 			{
 				if (patch->type == emu_PatchType_RelativeJump)
@@ -342,6 +371,7 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
 					int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
 					patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
 					patch->writePtr[1] = (uint8)(relativeOffset >> 8);
+					patch->isPatched = true;
 				}
 				else if (patch->type == emu_PatchType_GlobalAddress)
 				{
@@ -349,20 +379,19 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
 					uint16 labelAddress = label.address;
 					patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
 					patch->writePtr[1] = (uint8)(labelAddress >> 8);
+					patch->isPatched = true;
 				}
 			}
 			else
 			{
-				emu_Token const* token = patch->token;
-				emu_logError(assembler, token, "Label not found '%s'.", patch->as.label);
+				emu_logError(assembler, patch->token, "Label not found '%s'.", patch->as.label);
 			}
 		}
 		else if (patch->type == emu_PatchType_AnonymousJump)
 		{
 			if (patch->as.labelIndexToJumpTo >= (int16)stbds_shlen(program->labels))
 			{
-				emu_Token const* token = patch->token;
-				emu_logError(assembler, token, "Anonymous label not found.");
+				emu_logError(assembler, patch->token, "Undefined label. Anonymous label not found.");
 			}
 			else
 			{
@@ -372,6 +401,7 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
 				int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
 				patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
 				patch->writePtr[1] = (uint8)(relativeOffset >> 8);
+				patch->isPatched = true;
 			}
 		}
 		else
@@ -381,10 +411,83 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
 	}
 }
 
+static emu_LinkerError emu_linkProgram(emu_Assembler* assembler, emu_ProgramData* programs)
+{
+	emu_LinkerError res = emu_LinkerError_None;
+
+	// Attempt to link the last of the patches
+	for (int i = 0; i < stbds_arrlen(programs); i++)
+	{
+		emu_ProgramData* program = programs + i;
+		for (int j = 0; j < stbds_arrlen(program->patches); j++)
+		{
+			emu_PatchLocation* patch = program->patches + j;
+			if (patch->isPatched)
+			{
+				continue;
+			}
+
+			// If this label is not imported, we don't care about it here. We're only resolving
+			// imported labels during the linking phase
+			if (stbds_shgeti(program->importedLabels, patch->as.label) < 0)
+			{
+				continue;
+			}
+
+			// When we're in the linking stage, relative jumps are illegal. If we haven't found the label
+			// by here, then this label effectively does not exist
+			if (patch->type == emu_PatchType_RelativeJump)
+			{
+				emu_logError(assembler, patch->token, "Label not found '%s'.", patch->as.label);
+				res = emu_LinkerError_LabelNotFound;
+				continue;
+			}
+
+			if (patch->type == emu_PatchType_GlobalAddress)
+			{
+				// See if we can find the label in any of the other programs assembled
+				for (int otherProgramIndex = 0; otherProgramIndex < stbds_arrlen(programs); otherProgramIndex++)
+				{
+					if (otherProgramIndex == i)
+					{
+						continue;
+					}
+
+					emu_ProgramData* otherProgram = programs + otherProgramIndex;
+					if (stbds_shgeti(otherProgram->exportedLabels, patch->as.label) >= 0)
+					{
+						emu_LabelData label = stbds_shget(otherProgram->labels, patch->as.label);
+						uint16 labelAddress = label.address;
+						patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
+						patch->writePtr[1] = (uint8)(labelAddress >> 8);
+						patch->isPatched = true;
+					}
+				}
+
+				if (!patch->isPatched)
+				{
+					emu_logError(assembler, patch->token, "Label not found '%s'.", patch->as.label);
+					res = emu_LinkerError_LabelNotFound;
+				}
+			}
+			else
+			{
+				g_logger_error("Unable to handle linking this type of label %d", patch->type);
+			}
+		}
+	}
+
+	return res;
+}
+
 static void emu_freeProgramData(emu_ProgramData* program)
 {
-	emu_parser_freeTokenList(program->tokenList);
-	program->tokenList = NULL;
+	if (program->tokenList)
+	{
+		emu_parser_freeTokenList(program->tokenList);
+		g_memory_free(program->tokenList);
+		program->tokenList = NULL;
+	}
 
 	for (int i = 0; i < stbds_arrlen(program->patches); i++)
 	{
@@ -458,7 +561,7 @@ static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* 
 		return emu_StatementError_Invalid;
 	}
 
-	return emu_addLabel(assembler, token, emu_LabelType_Global);
+	return emu_addLabel(assembler, token);
 }
 
 static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Token const* token)
@@ -912,7 +1015,9 @@ static emu_StatementError emu_parseControlExport(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	return emu_addLabel(assembler, addrToken, emu_LabelType_Exported);
+	char* label = g_strcpy_sized(assembler->currentProgram->tokenList->sourceFile->data + addrToken->start, addrToken->length);
+	stbds_shput(assembler->currentProgram->exportedLabels, label, 0);
+	return emu_StatementError_None;
 }
 
 static emu_StatementError emu_parseControlImport(emu_Assembler* assembler)
@@ -924,7 +1029,9 @@ static emu_StatementError emu_parseControlImport(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	return emu_addLabel(assembler, addrToken, emu_LabelType_Imported);
+	char* label = g_strcpy_sized(assembler->currentProgram->tokenList->sourceFile->data + addrToken->start, addrToken->length);
+	stbds_shput(assembler->currentProgram->importedLabels, label, 0);
+	return emu_StatementError_None;
 }
 
 static emu_StatementError emu_parseProc(emu_Assembler* assembler)
@@ -936,7 +1043,7 @@ static emu_StatementError emu_parseProc(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	return emu_addLabel(assembler, addrToken, emu_LabelType_Global);
+	return emu_addLabel(assembler, addrToken);
 }
 
 static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler)
@@ -1145,7 +1252,7 @@ static void emu_setWriteIndex(emu_Assembler* assembler, char* segmentName, uint8
 	}
 }
 
-static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token, emu_LabelType type)
+static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token)
 {
 	if (token->type != emu_TokenType_Symbol)
 	{
@@ -1175,34 +1282,10 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 		}
 	}
 
-	if (type == emu_LabelType_Global)
-	{
-		stbds_shput(assembler->currentProgram->labels, label, ((emu_LabelData){
-			.address = prgAddress + assembler->mmap->as.nes.rom.start,
-				.index = labelIndex,
-				.type = type,
-		}));
-	}
-	else if (type == emu_LabelType_Exported)
-	{
-		stbds_shput(assembler->currentProgram->exportedLabels, label, ((emu_LabelData){
-			.address = prgAddress + assembler->mmap->as.nes.rom.start,
-				.index = labelIndex,
-				.type = type,
-		}));
-	}
-	else if (type == emu_LabelType_Imported)
-	{
-		stbds_shput(assembler->currentProgram->importedLabels, label, ((emu_LabelData){
-			.address = prgAddress + assembler->mmap->as.nes.rom.start,
-				.index = labelIndex,
-				.type = type,
-		}));
-	}
-	else
-	{
-		g_logger_error("Cannot handle label of type '%d'", type);
-	}
+	stbds_shput(assembler->currentProgram->labels, label, ((emu_LabelData){
+		.address = prgAddress + assembler->mmap->as.nes.rom.start,
+			.index = labelIndex,
+	}));
 
 	return emu_StatementError_None;
 }
@@ -1225,6 +1308,7 @@ static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_
 		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 		.token = token,
 		.type = type,
+		.isPatched = false,
 	};
 
 	// Increment 2 bytes to save room for the patched location
@@ -1253,6 +1337,7 @@ static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assemb
 		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
 		.token = debugToken,
 		.type = emu_PatchType_AnonymousJump,
+		.isPatched = false,
 	};
 
 	// Increment 2 bytes to save room for the patched location
