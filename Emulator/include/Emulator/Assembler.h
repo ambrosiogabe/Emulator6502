@@ -17,7 +17,7 @@ typedef struct emu_assembler_program
 	size_t romvSize;
 } emu_assembler_program;
 
-emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const mmap, const char* filename, size_t programSize);
+emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* const mmap, const char** files, size_t numFiles, size_t programSize);
 void emu_assembler_free(emu_assembler_program* program);
 
 #endif

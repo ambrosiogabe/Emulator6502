@@ -89,7 +89,7 @@ void emu_app_runTuiMode(emu_app* app, emu_assembler_program* program)
 	g_memory_free(program);
 }
 
-void emu_app_loadProgram(emu_app* app, const char* fullFilepath)
+void emu_app_loadProgram(emu_app* app, const char** files, size_t numFiles)
 {
 	if (app->program)
 	{
@@ -98,12 +98,12 @@ void emu_app_loadProgram(emu_app* app, const char* fullFilepath)
 		app->program = NULL;
 	}
 
-	emu_assembler_program program = emu_assembler_assembleProgram(&app->vm->mmap, fullFilepath, UINT16_MAX);
+	emu_assembler_program program = emu_assembler_assembleAndLinkProgram(&app->vm->mmap, files, numFiles, UINT16_MAX);
 
 	emu_vmError err = emu_vm_loadProgram(app->vm, &program);
 	if (err != emu_vmError_None)
 	{
-		emu_ConsoleOutput_error("VM is not valid. Cannot debug.", fullFilepath);
+		emu_ConsoleOutput_error("VM is not valid. Cannot debug.");
 		return;
 	}
 

@@ -18,9 +18,6 @@ SDL_AppResult SDL_AppInit(void** appstate, int argc, char* argv[])
 
 	if (runTui)
 	{
-		/*emu_assembler_program* program = emu_app_loadProgram(app, "foo.txt");
-		emu_app_runTuiMode(app, program);
-		*appstate = NULL;*/
 		g_logger_error("No TUI supported.");
 		return SDL_APP_SUCCESS;
 	}

@@ -134,27 +134,56 @@ typedef enum emu_StatementError
 {
 	emu_StatementError_None = 0,
 	emu_StatementError_Invalid,
+	emu_StatementError_DuplicateLabel,
 	emu_StatementError_EOF
 } emu_StatementError;
 
-typedef struct emu_Assembler
+typedef struct emu_MemorySegment
 {
-	emu_assembler_program program;
-	size_t current;
-	emu_TokenList* tokenList;
+	size_t currentOffset;
+	size_t size;
+	uint8* start;
+} emu_MemorySegment;
 
-	uint8* writeIndexStart;
-	uint8* writeIndex;
-	size_t writeIndexSize;
+typedef struct emu_MemorySegmentMap
+{
+	char* key;
+	emu_MemorySegment value;
+} emu_MemorySegmentMap;
+
+typedef struct emu_ProgramData
+{
+	const char* file;
+	emu_TokenList* tokenList;
+	/** The current token we are assembling */
+	size_t current;
 
 	emu_Label* labels;
 	emu_Label* exportedLabels;
 	emu_Label* importedLabels;
 	emu_PatchLocation* patches;
+	emu_StatementError exitCode;
+} emu_ProgramData;
+
+typedef struct emu_Assembler
+{
+	emu_assembler_program program;
+	emu_ProgramData* currentProgram;
+
+	char* activeSegment;
+	uint8* writeIndexStart;
+	uint8* writeIndex;
+	size_t writeIndexSize;
+
 	emu_MemoryMap const* const mmap;
+	emu_MemorySegmentMap* segmentMap;
 } emu_Assembler;
 
 // Internal Functions
+static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char* filename);
+static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program);
+static void emu_freeProgramData(emu_ProgramData* program);
+
 static emu_StatementError assembleNextStatement(emu_Assembler* assembler);
 static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Token const* token);
 static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_Token const* token);
@@ -178,7 +207,7 @@ static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* t
 static void emu_emitOpcode(emu_Assembler* assembler, emu_vmInstruction opcode);
 static void emu_emitWord(emu_Assembler* assembler, uint16 word);
 static void emu_emitByte(emu_Assembler* assembler, uint8 byte);
-static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8* index, size_t indexSize);
+static void emu_setWriteIndex(emu_Assembler* assembler, char* segmentName, uint8* indexStart, uint8* index, size_t indexSize);
 static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token, emu_LabelType type);
 static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_Token const* token, emu_PatchType type);
 static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assembler, int16 numberOfLabelsToJump, emu_Token const* debugToken);
@@ -200,20 +229,14 @@ static emu_TokenType peek(emu_Assembler* assembler);
 static emu_TokenType peekMulti(emu_Assembler* assembler, size_t offset);
 
 // Public Functions
-emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const mmap, const char* filename, size_t programSize)
+emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* const mmap, const char** files, size_t numFiles, size_t programSize)
 {
-	emu_TokenList tokenList = emu_parser_parseFile(filename);
-
 	emu_Assembler assembler = {
 		.program = {.data = g_memory_allocate(programSize), .dataSize = programSize },
-	.current = 0,
-	.writeIndex = NULL,
-	.writeIndexStart = NULL,
-	.writeIndexSize = 0,
-	.tokenList = &tokenList,
-	.labels = NULL,
-	.patches = NULL,
-	.mmap = mmap,
+		.writeIndex = NULL,
+		.writeIndexStart = NULL,
+		.writeIndexSize = 0,
+		.mmap = mmap,
 	};
 
 	// Initialize to BRK instructions
@@ -227,95 +250,17 @@ emu_assembler_program emu_assembler_assembleProgram(emu_MemoryMap const* const m
 	assembler.writeIndexStart = assembler.writeIndex;
 	assembler.writeIndexSize = programSize;
 
-	emu_StatementError error = emu_StatementError_None;
-	while (!error)
+	for (size_t i = 0; i < numFiles; i++)
 	{
-		error = assembleNextStatement(&assembler);
+		emu_assembleProgram(&assembler, files[i]);
 	}
 
-	// Patch all the needed patches
-	for (int i = 0; i < stbds_arrlen(assembler.patches); i++)
+	// Free the segment maps
+	for (int i = 0; i < stbds_shlen(assembler.segmentMap); i++)
 	{
-		emu_PatchLocation* patch = assembler.patches + i;
-
-		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
-		{
-			if (stbds_shgeti(assembler.labels, patch->as.label) >= 0)
-			{
-				if (patch->type == emu_PatchType_RelativeJump)
-				{
-					emu_LabelData label = stbds_shget(assembler.labels, patch->as.label);
-					uint16 labelAddress = label.address;
-					int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
-					patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
-					patch->writePtr[1] = (uint8)(relativeOffset >> 8);
-				}
-				else if (patch->type == emu_PatchType_GlobalAddress)
-				{
-					emu_LabelData label = stbds_shget(assembler.labels, patch->as.label);
-					uint16 labelAddress = label.address;
-					patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
-					patch->writePtr[1] = (uint8)(labelAddress >> 8);
-				}
-			}
-			else
-			{
-				emu_Token const* token = patch->token;
-				emu_logError(&assembler, token, "Label not found '%s'.", patch->as.label);
-			}
-		}
-		else if (patch->type == emu_PatchType_AnonymousJump)
-		{
-			if (patch->as.labelIndexToJumpTo >= (int16)stbds_shlen(assembler.labels))
-			{
-				emu_Token const* token = patch->token;
-				emu_logError(&assembler, token, "Anonymous label not found.");
-			}
-			else
-			{
-				emu_LabelData label = (assembler.labels + patch->as.labelIndexToJumpTo)->value;
-				g_logger_assert(label.index == patch->as.labelIndexToJumpTo, "Somehow recorded incorrect label index to jump to.");
-				uint16 labelAddress = label.address;
-				int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
-				patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
-				patch->writePtr[1] = (uint8)(relativeOffset >> 8);
-			}
-		}
-		else
-		{
-			g_logger_error("Unable to handle patching this type of label %d", patch->type);
-		}
+		g_memory_free(assembler.segmentMap[i].key);
 	}
-
-	emu_parser_freeTokenList(&tokenList);
-
-	for (int i = 0; i < stbds_arrlen(assembler.patches); i++)
-	{
-		emu_PatchLocation* patch = assembler.patches + i;
-		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
-		{
-			g_memory_free(patch->as.label);
-		}
-
-	}
-
-	for (int i = 0; i < stbds_shlen(assembler.labels); i++)
-	{
-		g_memory_free(assembler.labels[i].key);
-	}
-
-	for (int i = 0; i < stbds_shlen(assembler.exportedLabels); i++)
-	{
-		g_memory_free(assembler.exportedLabels[i].key);
-	}
-
-	for (int i = 0; i < stbds_shlen(assembler.importedLabels); i++)
-	{
-		g_memory_free(assembler.importedLabels[i].key);
-	}
-
-	stbds_arrfree(assembler.patches);
-	stbds_shfree(assembler.labels);
+	stbds_shfree(assembler.segmentMap);
 
 	size_t romvSize = emu_mmap_getSize(assembler.mmap->as.nes.romv);
 	size_t headerSize = emu_mmap_getSize(assembler.mmap->as.nes.header);
@@ -348,6 +293,136 @@ void emu_assembler_free(emu_assembler_program* program)
 }
 
 // Internal definitions
+static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char* filename)
+{
+	emu_TokenList tokenList = emu_parser_parseFile(filename);
+	emu_ProgramData currentProgram = {
+		.current = 0,
+		.tokenList = &tokenList,
+		.labels = NULL,
+		.exportedLabels = NULL,
+		.importedLabels = NULL,
+		.patches = NULL,
+		.file = filename,
+	};
+	assembler->currentProgram = &currentProgram;
+
+	emu_StatementError error = emu_StatementError_None;
+	while (!error)
+	{
+		error = assembleNextStatement(assembler);
+	}
+	currentProgram.exitCode = error;
+
+	if (error == emu_StatementError_None)
+	{
+		emu_patchProgram(assembler, &currentProgram);
+	}
+
+	emu_freeProgramData(&currentProgram);
+
+	return currentProgram;
+}
+
+static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program)
+{
+	// Patch all the needed patches
+	for (int i = 0; i < stbds_arrlen(program->patches); i++)
+	{
+		emu_PatchLocation* patch = program->patches + i;
+
+		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
+		{
+			if (stbds_shgeti(program->labels, patch->as.label) >= 0)
+			{
+				if (patch->type == emu_PatchType_RelativeJump)
+				{
+					emu_LabelData label = stbds_shget(program->labels, patch->as.label);
+					uint16 labelAddress = label.address;
+					int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
+					patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
+					patch->writePtr[1] = (uint8)(relativeOffset >> 8);
+				}
+				else if (patch->type == emu_PatchType_GlobalAddress)
+				{
+					emu_LabelData label = stbds_shget(program->labels, patch->as.label);
+					uint16 labelAddress = label.address;
+					patch->writePtr[0] = (uint8)(labelAddress & 0xFF);
+					patch->writePtr[1] = (uint8)(labelAddress >> 8);
+				}
+			}
+			else
+			{
+				emu_Token const* token = patch->token;
+				emu_logError(assembler, token, "Label not found '%s'.", patch->as.label);
+			}
+		}
+		else if (patch->type == emu_PatchType_AnonymousJump)
+		{
+			if (patch->as.labelIndexToJumpTo >= (int16)stbds_shlen(program->labels))
+			{
+				emu_Token const* token = patch->token;
+				emu_logError(assembler, token, "Anonymous label not found.");
+			}
+			else
+			{
+				emu_LabelData label = (program->labels + patch->as.labelIndexToJumpTo)->value;
+				g_logger_assert(label.index == patch->as.labelIndexToJumpTo, "Somehow recorded incorrect label index to jump to.");
+				uint16 labelAddress = label.address;
+				int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
+				patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
+				patch->writePtr[1] = (uint8)(relativeOffset >> 8);
+			}
+		}
+		else
+		{
+			g_logger_error("Unable to handle patching this type of label %d", patch->type);
+		}
+	}
+}
+
+static void emu_freeProgramData(emu_ProgramData* program)
+{
+	emu_parser_freeTokenList(program->tokenList);
+	program->tokenList = NULL;
+
+	for (int i = 0; i < stbds_arrlen(program->patches); i++)
+	{
+		emu_PatchLocation* patch = program->patches + i;
+		if (patch->type == emu_PatchType_RelativeJump || patch->type == emu_PatchType_GlobalAddress)
+		{
+			g_memory_free(patch->as.label);
+		}
+
+	}
+
+	for (int i = 0; i < stbds_shlen(program->labels); i++)
+	{
+		g_memory_free(program->labels[i].key);
+	}
+
+	for (int i = 0; i < stbds_shlen(program->exportedLabels); i++)
+	{
+		g_memory_free(program->exportedLabels[i].key);
+	}
+
+	for (int i = 0; i < stbds_shlen(program->importedLabels); i++)
+	{
+		g_memory_free(program->importedLabels[i].key);
+	}
+
+	stbds_arrfree(program->patches);
+	stbds_shfree(program->labels);
+	stbds_shfree(program->exportedLabels);
+	stbds_shfree(program->importedLabels);
+
+	program->patches = NULL;
+	program->labels = NULL;
+	program->exportedLabels = NULL;
+	program->importedLabels = NULL;
+	program->current = 0;
+}
+
 static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 {
 	emu_Token const* token = getNext(assembler);
@@ -396,7 +471,7 @@ static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Toke
 
 	// Create fake name for label. We'll use the size of labels to make sure it's unique
 	char scratch[1'024];
-	int length = snprintf(scratch, sizeof(scratch), "##Anonymous##%d", (int16)stbds_shlen(assembler->labels));
+	int length = snprintf(scratch, sizeof(scratch), "##Anonymous##%d", (int16)stbds_shlen(assembler->currentProgram->labels));
 	g_logger_assert(length < 1'024 - 1, "Could not write buffer");
 	scratch[length] = '\0';
 
@@ -406,8 +481,8 @@ static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Toke
 
 	// Record location of label
 	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-	uint16 labelIndex = (uint16)(stbds_shlen(assembler->labels));
-	stbds_shput(assembler->labels, label, ((emu_LabelData){
+	uint16 labelIndex = (uint16)(stbds_shlen(assembler->currentProgram->labels));
+	stbds_shput(assembler->currentProgram->labels, label, ((emu_LabelData){
 		.address = prgAddress + assembler->mmap->as.nes.rom.start,
 			.index = labelIndex
 	}));
@@ -676,7 +751,7 @@ static emu_ArgList* parseArgList(emu_Assembler* assembler, emu_Token const* toke
 	break;
 	case emu_TokenType_Symbol:
 	{
-		emu_file* file = assembler->tokenList->sourceFile;
+		emu_file* file = assembler->currentProgram->tokenList->sourceFile;
 		char symbolFirstChar = file->data[argList->arg1.token->start];
 		if (toupper(symbolFirstChar) == 'X' && argList->arg1.token->length == 1)
 		{
@@ -718,9 +793,29 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 		return emu_StatementError_Invalid;
 	}
 
-	char* segmentNameStr = g_memory_allocate(segmentName->length + 1);
-	g_memory_copyMem(segmentNameStr, assembler->tokenList->sourceFile->data + segmentName->start, segmentName->length);
-	segmentNameStr[segmentName->length] = '\0';
+	// First, make sure we record our current write index to the active segment
+	if (assembler->activeSegment)
+	{
+		if (stbds_shgeti(assembler->segmentMap, assembler->activeSegment) < 0)
+		{
+			g_logger_error("Somehow we ended up with an active segment '%s' without it being in our segment map.", assembler->activeSegment);
+			return emu_StatementError_Invalid;
+		}
+
+		emu_MemorySegment* segment = &(stbds_shgetp(assembler->segmentMap, assembler->activeSegment)->value);
+		segment->currentOffset = assembler->writeIndex - assembler->writeIndexStart;
+	}
+
+	char* segmentNameStr = g_strcpy_sized(assembler->currentProgram->tokenList->sourceFile->data + segmentName->start, segmentName->length);
+
+	// Check if we already have a header segment, and if we do set to that write index and return early
+	if (stbds_shgeti(assembler->segmentMap, segmentNameStr) >= 0)
+	{
+		emu_MemorySegment* segment = &(stbds_shgetp(assembler->segmentMap, segmentNameStr)->value);
+		emu_setWriteIndex(assembler, NULL, segment->start, segment->start + segment->currentOffset, segment->size);
+		g_memory_free(segmentNameStr);
+		return emu_StatementError_None;
+	}
 
 	if (strcmp("\"HEADER\"", segmentNameStr) == 0)
 	{
@@ -730,6 +825,7 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 		g_logger_assert(headerOffset + emu_mmap_getSize(headerRange) <= assembler->program.dataSize, "Overflow");
 		emu_setWriteIndex(
 			assembler,
+			segmentNameStr,
 			assembler->program.data + headerOffset,
 			assembler->program.data + headerOffset,
 			emu_mmap_getSize(headerRange)
@@ -746,6 +842,7 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 		g_logger_assert(vectorOffset + emu_mmap_getSize(vectorRange) <= assembler->program.dataSize, "Overflow");
 		emu_setWriteIndex(
 			assembler,
+			segmentNameStr,
 			assembler->program.data + vectorOffset,
 			assembler->program.data + vectorOffset,
 			emu_mmap_getSize(vectorRange)
@@ -760,6 +857,7 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 		uint16 romOffset = headerRange.start + (uint16)emu_mmap_getSize(headerRange);
 		emu_setWriteIndex(
 			assembler,
+			segmentNameStr,
 			assembler->program.data + romOffset,
 			assembler->program.data + romOffset,
 			emu_mmap_getSize(romRange)
@@ -768,19 +866,20 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 	else if (strcmp("\"STARTUP\"", segmentNameStr) == 0)
 	{
 		g_logger_warning("TODO: Implement STARTUP section");
+		emu_setWriteIndex(assembler, segmentNameStr, assembler->program.data, assembler->program.data, 0);
 	}
 	else if (strcmp("\"CHARS\"", segmentNameStr) == 0)
 	{
 		g_logger_warning("TODO: Implement CHARS section");
+		emu_setWriteIndex(assembler, segmentNameStr, assembler->program.data, assembler->program.data, 0);
 	}
 	else
 	{
 		emu_logError(assembler, segmentName, "Unknown segment '%s'.", segmentNameStr);
-		g_memory_free(segmentNameStr);
 		return emu_StatementError_Invalid;
 	}
 
-	g_memory_free(segmentNameStr);
+	assembler->activeSegment = segmentNameStr;
 	return emu_StatementError_None;
 }
 
@@ -1028,12 +1127,22 @@ static void emu_emitByte(emu_Assembler* assembler, uint8 opcode)
 	assembler->writeIndex++;
 }
 
-static void emu_setWriteIndex(emu_Assembler* assembler, uint8* indexStart, uint8* index, size_t indexSize)
+static void emu_setWriteIndex(emu_Assembler* assembler, char* segmentName, uint8* indexStart, uint8* index, size_t indexSize)
 {
 	g_logger_assert(indexStart <= index, "Invalid index start.");
 	assembler->writeIndex = index;
 	assembler->writeIndexSize = indexSize;
 	assembler->writeIndexStart = indexStart;
+
+	if (segmentName)
+	{
+		stbds_shput(assembler->segmentMap, segmentName, ((emu_MemorySegment)
+		{
+			.currentOffset = index - indexStart,
+				.size = indexSize,
+				.start = indexStart,
+		}));
+	}
 }
 
 static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const* token, emu_LabelType type)
@@ -1045,13 +1154,30 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 	}
 
 	// Record location of label
-	char* label = g_strcpy_sized(assembler->tokenList->sourceFile->data + token->start, token->length);
+	char* label = g_strcpy_sized(assembler->currentProgram->tokenList->sourceFile->data + token->start, token->length);
 	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
-	uint16 labelIndex = (uint16)(stbds_shlen(assembler->labels));
+	uint16 labelIndex = (uint16)(stbds_shlen(assembler->currentProgram->labels));
+
+	// If duplicate, then log error
+	{
+		if (stbds_shgeti(assembler->currentProgram->labels, label) >= 0)
+		{
+			emu_logError(assembler, token, "Symbol '%s' is already defined.", label);
+			g_memory_free(label);
+			return emu_StatementError_DuplicateLabel;
+		}
+
+		if (stbds_shgeti(assembler->currentProgram->importedLabels, label) >= 0)
+		{
+			emu_logError(assembler, token, "Symbol '%s' is already an import.", label);
+			g_memory_free(label);
+			return emu_StatementError_DuplicateLabel;
+		}
+	}
 
 	if (type == emu_LabelType_Global)
 	{
-		stbds_shput(assembler->labels, label, ((emu_LabelData){
+		stbds_shput(assembler->currentProgram->labels, label, ((emu_LabelData){
 			.address = prgAddress + assembler->mmap->as.nes.rom.start,
 				.index = labelIndex,
 				.type = type,
@@ -1059,7 +1185,7 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 	}
 	else if (type == emu_LabelType_Exported)
 	{
-		stbds_shput(assembler->exportedLabels, label, ((emu_LabelData){
+		stbds_shput(assembler->currentProgram->exportedLabels, label, ((emu_LabelData){
 			.address = prgAddress + assembler->mmap->as.nes.rom.start,
 				.index = labelIndex,
 				.type = type,
@@ -1067,7 +1193,7 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 	}
 	else if (type == emu_LabelType_Imported)
 	{
-		stbds_shput(assembler->importedLabels, label, ((emu_LabelData){
+		stbds_shput(assembler->currentProgram->importedLabels, label, ((emu_LabelData){
 			.address = prgAddress + assembler->mmap->as.nes.rom.start,
 				.index = labelIndex,
 				.type = type,
@@ -1089,7 +1215,7 @@ static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_
 		return emu_StatementError_Invalid;
 	}
 
-	char* label = g_strcpy_sized(assembler->tokenList->sourceFile->data + token->start, token->length);
+	char* label = g_strcpy_sized(assembler->currentProgram->tokenList->sourceFile->data + token->start, token->length);
 	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 	emu_PatchLocation patch = {
 		.as = {
@@ -1103,7 +1229,7 @@ static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_
 
 	// Increment 2 bytes to save room for the patched location
 	assembler->writeIndex += 2;
-	stbds_arrput(assembler->patches, patch);
+	stbds_arrput(assembler->currentProgram->patches, patch);
 
 	return emu_StatementError_None;
 }
@@ -1116,7 +1242,7 @@ static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assemb
 		return emu_StatementError_Invalid;
 	}
 
-	int16 currentLabelIndex = (int16)(stbds_shlen(assembler->labels) - 1);
+	int16 currentLabelIndex = (int16)(stbds_shlen(assembler->currentProgram->labels) - 1);
 	int16 labelIndexToJumpTo = currentLabelIndex + numberOfLabelsToJump;
 	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 	emu_PatchLocation patch = {
@@ -1131,7 +1257,7 @@ static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assemb
 
 	// Increment 2 bytes to save room for the patched location
 	assembler->writeIndex += 2;
-	stbds_arrput(assembler->patches, patch);
+	stbds_arrput(assembler->currentProgram->patches, patch);
 
 	return emu_StatementError_None;
 }
@@ -1356,7 +1482,7 @@ static void emu_logError(emu_Assembler* assembler, emu_Token const* token, const
 	vsnprintf(messageBuffer, sizeof(messageBuffer), fmtString, args);
 	va_end(args);
 
-	emu_file* file = assembler->tokenList->sourceFile;
+	emu_file* file = assembler->currentProgram->tokenList->sourceFile;
 	size_t lineStart = 0;
 	size_t lineEnd = file->data_size;
 	for (size_t i = token->start; i > 0; i--)
@@ -1381,7 +1507,8 @@ static void emu_logError(emu_Assembler* assembler, emu_Token const* token, const
 	snprintf(
 		fullErrorBuffer,
 		sizeof(fullErrorBuffer),
-		"Error line %d:%d: %s\n\t%.*s\n\t%*s|-- here",
+		"%s(%d,%d): %s\n\t%.*s\n\t%*s|-- here",
+		assembler->currentProgram->file,
 		(int)token->line,
 		(int)token->column,
 		messageBuffer,
@@ -1396,14 +1523,14 @@ static void emu_logError(emu_Assembler* assembler, emu_Token const* token, const
 
 static emu_Token const* getNext(emu_Assembler* assembler)
 {
-	size_t tokenListLength = emu_parser_tokenListLength(assembler->tokenList);
-	if (assembler->current >= tokenListLength)
+	size_t tokenListLength = emu_parser_tokenListLength(assembler->currentProgram->tokenList);
+	if (assembler->currentProgram->current >= tokenListLength)
 	{
 		return NULL;
 	}
 
-	emu_Token const* token = assembler->tokenList->tokens + assembler->current;
-	assembler->current++;
+	emu_Token const* token = assembler->currentProgram->tokenList->tokens + assembler->currentProgram->current;
+	assembler->currentProgram->current++;
 	return token;
 }
 
@@ -1414,11 +1541,11 @@ static emu_TokenType peek(emu_Assembler* assembler)
 
 static emu_TokenType peekMulti(emu_Assembler* assembler, size_t offset)
 {
-	size_t tokenListLength = emu_parser_tokenListLength(assembler->tokenList);
-	if (assembler->current + offset >= tokenListLength)
+	size_t tokenListLength = emu_parser_tokenListLength(assembler->currentProgram->tokenList);
+	if (assembler->currentProgram->current + offset >= tokenListLength)
 	{
 		return emu_TokenType_NULL;
 	}
 
-	return assembler->tokenList->tokens[assembler->current + offset].type;
+	return assembler->currentProgram->tokenList->tokens[assembler->currentProgram->current + offset].type;
 }

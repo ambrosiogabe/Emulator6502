@@ -134,8 +134,6 @@ void emu_CodeEditor_openFile(emu_app* app, const char* fullFilepath)
 				res.totalNumLines++;
 			}
 		}
-
-		emu_app_loadProgram(app, fullFilepath);
 	}
 	else
 	{
@@ -163,6 +161,7 @@ void emu_CodeEditor_tick(emu_app* app)
 		{
 			if (ImGui_MenuItem("Debug"))
 			{
+				emu_app_loadProgram(app, app->data.sourceFiles, stbds_arrlen(app->data.sourceFiles));
 				emu_cimgui_focusWindow(CImGui_WindowType_EmulatorDebug);
 			}
 
@@ -189,7 +188,6 @@ void emu_CodeEditor_tick(emu_app* app)
 				{
 					panel->dirty = false;
 					emu_file_write(panel->fullFilepath, (uint8*)panel->sourceCodeBuffer, panel->sourceCodeBufferLength);
-					emu_app_loadProgram(app, panel->fullFilepath);
 				}
 
 				if (!panel->open)
