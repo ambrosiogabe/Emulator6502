@@ -106,6 +106,7 @@ void emu_vm_initDebug()
 	emu_vmInstructions[emu_vmInstruction_BRK] = "BRK";
 	emu_vmInstructions[emu_vmInstruction_CLC_IMP] = "CLC_IMP";
 	emu_vmInstructions[emu_vmInstruction_SEC_IMP] = "SEC_IMP";
+	emu_vmInstructions[emu_vmInstruction_SEI_IMP] = "SEI_IMP";
 	emu_vmInstructions[emu_vmInstruction_RTS_IMP] = "RTS_IMP";
 	emu_vmInstructions[emu_vmInstruction_JSR_ABS] = "JSR_ABS";
 	// -- OR instructions --
@@ -689,6 +690,9 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 		break;
 	case emu_vmInstruction_SEC_IMP:
 		emu_vm_setStatus(vm, emu_vmStatus_Carry);
+		break;
+	case emu_vmInstruction_SEI_IMP:
+		emu_vm_setStatus(vm, emu_vmStatus_InterruptDisable);
 		break;
 	default:
 		g_logger_error("Cannot execute instruction: '%s'", emu_vmInstructions[instruction]);

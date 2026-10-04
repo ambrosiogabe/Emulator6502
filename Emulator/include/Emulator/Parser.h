@@ -46,6 +46,7 @@ typedef enum emu_Keyword
 	emu_Keyword_BNE,
 	emu_Keyword_BEQ,
 	emu_Keyword_SEC,
+	emu_Keyword_SEI,
 	emu_Keyword_CLC,
 	emu_Keyword_JSR,
 	emu_Keyword_BIT,
