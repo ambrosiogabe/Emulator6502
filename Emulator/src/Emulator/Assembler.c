@@ -2,6 +2,7 @@
 #include "Emulator/Parser.h"
 #include "Emulator/VirtualMachine.h"
 #include "Emulator/MemoryMap.h"
+#include "Emulator/App.h"
 #include "utils/FileHelper.h"
 #include "utils/SafeVendor.h"
 #include "frontend/ConsoleOutput.h"
@@ -247,7 +248,7 @@ static emu_TokenType peek(emu_Assembler* assembler);
 static emu_TokenType peekMulti(emu_Assembler* assembler, size_t offset);
 
 // Public Functions
-emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* const mmap, const char** files, size_t numFiles, size_t programSize)
+emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* const mmap, const emu_appData_SourceFile* sourceFiles, size_t programSize)
 {
 	emu_Assembler assembler = {
 		.program = {.data = g_memory_allocate(programSize), .dataSize = programSize },
@@ -269,9 +270,9 @@ emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* 
 	assembler.writeIndexSize = programSize;
 
 	emu_ProgramData* assembledPrograms = NULL;
-	for (size_t i = 0; i < numFiles; i++)
+	for (int i = 0; i < stbds_arrlen(sourceFiles); i++)
 	{
-		emu_ProgramData data = emu_assembleProgram(&assembler, files[i]);
+		emu_ProgramData data = emu_assembleProgram(&assembler, sourceFiles[i].filepath);
 		stbds_arrpush(assembledPrograms, data);
 	}
 

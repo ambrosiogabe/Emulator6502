@@ -3,6 +3,7 @@
 #include "utils/SafeVendor.h"
 
 typedef struct emu_MemoryMap emu_MemoryMap;
+typedef struct emu_appData_SourceFile emu_appData_SourceFile;
 
 typedef struct emu_assembler_program
 {
@@ -17,7 +18,7 @@ typedef struct emu_assembler_program
 	size_t romvSize;
 } emu_assembler_program;
 
-emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* const mmap, const char** files, size_t numFiles, size_t programSize);
+emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* const mmap, const emu_appData_SourceFile* sourceFiles, size_t programSize);
 void emu_assembler_free(emu_assembler_program* program);
 
 #endif

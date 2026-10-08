@@ -1,6 +1,7 @@
 #include "frontend/CodeEditor.h"
 #include "frontend/ImGuiLayer.h"
 #include "frontend/SyntaxHighlighter.h"
+#include "frontend/ConsoleOutput.h"
 #include "Emulator/App.h"
 #include "Emulator/Assembler.h"
 #include "utils/FileHelper.h"
@@ -28,7 +29,6 @@ typedef struct CodeEditorPanel
 	size_t filenameLength;
 	char* fullFilepath;
 	size_t fullFilepathLength;
-	int* breakpoints;
 	bool open;
 
 	int totalNumLines;
@@ -49,7 +49,7 @@ static TSTree* updateSyntaxTree(CodeEditorPanel* panel, const char* sourceCodeBu
 static int handleTextResizing(CodeEditorPanel* panel, ImGuiInputTextCallbackData* data);
 static void handleTextEdit(CodeEditorPanel* panel);
 static int inputTextCallback(ImGuiInputTextCallbackData* data);
-static void renderCodePanel(CodeEditorPanel* panel);
+static void renderCodePanel(emu_app* app, CodeEditorPanel* panel);
 static void freePanel(CodeEditorPanel* panel);
 
 void emu_CodeEditor_init()
@@ -161,7 +161,7 @@ void emu_CodeEditor_tick(emu_app* app)
 		{
 			if (ImGui_MenuItem("Debug"))
 			{
-				emu_app_loadProgram(app, app->data.sourceFiles, stbds_arrlen(app->data.sourceFiles));
+				emu_app_loadProgram(app);
 				emu_cimgui_focusWindow(CImGui_WindowType_EmulatorDebug);
 			}
 
@@ -179,7 +179,7 @@ void emu_CodeEditor_tick(emu_app* app)
 					: ImGuiTabItemFlags_None;
 				if (panel->open && ImGui_BeginTabItem(panel->filename, &panel->open, flags))
 				{
-					renderCodePanel(panel);
+					renderCodePanel(app, panel);
 					ImGui_EndTabItem();
 				}
 
@@ -376,8 +376,18 @@ static int inputTextCallback(ImGuiInputTextCallbackData* data)
 	return 0;
 }
 
-static void renderCodePanel(CodeEditorPanel* panel)
+static void renderCodePanel(emu_app* app, CodeEditorPanel* panel)
 {
+	int sourceFileIndex = -1;
+	for (int i = 0; i < stbds_arrlen(app->data.sourceFiles); i++)
+	{
+		if (strcmp(app->data.sourceFiles[i].filepath, panel->fullFilepath) == 0)
+		{
+			sourceFileIndex = i;
+			break;
+		}
+	}
+
 	emu_CodeTheme const* theme = emu_SyntaxHighlighter_getTheme();
 	emu_cimgui_pushFont(CImGui_FontType_Mono);
 
@@ -426,32 +436,39 @@ static void renderCodePanel(CodeEditorPanel* panel)
 					ImDrawList_AddCircleFilled(ImGui_GetWindowDrawList(), circlePos, lineHeight / 2.0f, selectedLineNumberColorU32, 0);
 				}
 
-				if (ImGui_IsItemClicked())
+				if (sourceFileIndex != -1)
 				{
-					bool deleted = false;
-					for (int i = 0; i < stbds_arrlen(panel->breakpoints); i++)
+					if (ImGui_IsItemClicked())
 					{
-						if (panel->breakpoints[i] == line)
+						bool deleted = false;
+						for (int i = 0; i < stbds_arrlen(app->data.sourceFiles[sourceFileIndex].breakpoints); i++)
 						{
-							stbds_arrdel(panel->breakpoints, i);
-							deleted = true;
-							break;
+							if (app->data.sourceFiles[sourceFileIndex].breakpoints[i] == line)
+							{
+								stbds_arrdel(app->data.sourceFiles[sourceFileIndex].breakpoints, i);
+								deleted = true;
+								break;
+							}
+						}
+
+						if (!deleted)
+						{
+							stbds_arrpush(app->data.sourceFiles[sourceFileIndex].breakpoints, line);
 						}
 					}
-
-					if (!deleted)
-					{
-						stbds_arrpush(panels->breakpoints, line);
-					}
+				}
+				else
+				{
+					emu_ConsoleOutput_error("Cannot add breakpoint to file '%s'. File must be added to project source files. Right-click the file in the File Explorer to add it to the project source files.", panel->fullFilepath);
 				}
 			}
 
 			cursorY += lineHeight;
 		}
 
-		for (int i = 0; i < stbds_arrlen(panel->breakpoints); i++)
+		for (int i = 0; i < stbds_arrlen(app->data.sourceFiles[sourceFileIndex].breakpoints); i++)
 		{
-			int breakpoint = panel->breakpoints[i];
+			int breakpoint = app->data.sourceFiles[sourceFileIndex].breakpoints[i];
 			if (breakpoint >= lineNumberStart && breakpoint <= lineNumberStart + numberOfLinesVisible + 1)
 			{
 				ImGui_SetCursorPosY(gutterScrollOffset + lineHeight * (breakpoint - lineNumberStart));
@@ -622,11 +639,6 @@ static void freePanel(CodeEditorPanel* panel)
 	if (panel->codeHighlights)
 	{
 		stbds_arrfree(panel->codeHighlights);
-	}
-
-	if (panel->breakpoints)
-	{
-		stbds_arrfree(panel->breakpoints);
 	}
 
 	if (panel->filename)

@@ -144,7 +144,10 @@ static int showDirectory(int uid, emu_file_data* dir, emu_app* app)
 					{
 						if (child->extType == emu_file_extType_asm)
 						{
-							stbds_arrpush(app->data.sourceFiles, g_strcpy(child->fullFilepath));
+							stbds_arrpush(app->data.sourceFiles, ((emu_appData_SourceFile){
+								.filepath = g_strcpy(child->fullFilepath),
+									.breakpoints = NULL,
+							}));
 						}
 						else
 						{

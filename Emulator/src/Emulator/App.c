@@ -117,7 +117,7 @@ static void stopAndCleanUpCpuThread()
 		CloseHandle(shouldStepOverFlagLock);
 		CloseHandle(cpuThreadBreakFlagLock);
 		cpuThread = NULL;
-		shouldCpuEmulateCriticalSection = (CRITICAL_SECTION){0};
+		shouldCpuEmulateCriticalSection = (CRITICAL_SECTION){ 0 };
 		shouldStepOverFlagLock = NULL;
 		cpuThreadBreakFlagLock = NULL;
 	}
@@ -182,7 +182,7 @@ void emu_app_runTuiMode(emu_app* app, emu_assembler_program* program)
 	g_memory_free(program);
 }
 
-void emu_app_loadProgram(emu_app* app, const char** files, size_t numFiles)
+void emu_app_loadProgram(emu_app* app)
 {
 	if (app->program)
 	{
@@ -191,7 +191,7 @@ void emu_app_loadProgram(emu_app* app, const char** files, size_t numFiles)
 		app->program = NULL;
 	}
 
-	emu_assembler_program program = emu_assembler_assembleAndLinkProgram(&app->vm->mmap, files, numFiles, UINT16_MAX);
+	emu_assembler_program program = emu_assembler_assembleAndLinkProgram(&app->vm->mmap, app->data.sourceFiles, UINT16_MAX);
 
 	emu_vmError err = emu_vm_loadProgram(app->vm, &program);
 	if (err != emu_vmError_None)
@@ -406,9 +406,25 @@ void emu_app_saveProject(emu_app* app, const char* filename)
 		size_t numSourceFiles = stbds_arrlen(app->data.sourceFiles);
 		for (size_t i = 0; i < numSourceFiles; i++)
 		{
-			const char* sourceFile = app->data.sourceFiles[i];
-			cyaml_seq_push(sourceFiles, cyaml_new_cstr(doc, sourceFile));
+			emu_appData_SourceFile* sourceFile = app->data.sourceFiles + i;
+			cyaml_node_t* sourceFileObj = cyaml_new_map(doc);
+			// Create source file yaml object
+			{
+				cyaml_map_set(doc, sourceFileObj, "filepath", cyaml_new_cstr(doc, sourceFile->filepath));
+
+				cyaml_node_t* breakpointSeq = cyaml_new_seq(doc);
+				for (int j = 0; j < stbds_arrlen(sourceFile->breakpoints); j++)
+				{
+					cyaml_seq_push(breakpointSeq, cyaml_new_int(doc, sourceFile->breakpoints[j]));
+				}
+				cyaml_map_set(doc, sourceFileObj, "breakpoints", breakpointSeq);
+			}
+
+			// Push source file to sequence in root
+			cyaml_seq_push(sourceFiles, sourceFileObj);
 		}
+
+		// Set sourceFiles in root of doc
 		cyaml_map_set(doc, root, "sourceFiles", sourceFiles);
 	}
 
@@ -462,8 +478,26 @@ void emu_app_loadProject(emu_app* app, const char* filename)
 			for (uint32 i = 0; i < numSourceFiles; i++)
 			{
 				cyaml_node_t* sourceFileToLoad = cyaml_seq_get(sourceFiles, i);
-				char* fileToLoadStr = cyaml_scalar_str(doc, sourceFileToLoad);
-				stbds_arrpush(app->data.sourceFiles, g_strcpy(fileToLoadStr));
+
+
+				cyaml_node_t* fileToLoadObj = cyaml_get(doc, sourceFileToLoad, "filepath");
+				char* fileToLoadStr = cyaml_scalar_str(doc, fileToLoadObj);
+
+				int* breakpoints = NULL;
+				cyaml_node_t* breakpointsSeq = cyaml_get(doc, sourceFileToLoad, "breakpoints");
+				uint32 numBreakpoints = cyaml_seq_len(breakpointsSeq);
+				for (uint32 j = 0; j < numBreakpoints; j++)
+				{
+					int64 breakpoint;
+					cyaml_as_int(doc, cyaml_seq_get(breakpointsSeq, j), &breakpoint);
+					stbds_arrpush(breakpoints, (int32)breakpoint);
+				}
+
+				stbds_arrpush(app->data.sourceFiles, ((emu_appData_SourceFile)
+				{
+					.filepath = g_strcpy(fileToLoadStr),
+						.breakpoints = breakpoints
+				}));
 				free(fileToLoadStr);
 			}
 		}
@@ -552,7 +586,8 @@ static void freeAppData(emu_app_data* data)
 
 		for (int i = 0; i < stbds_arrlen(data->sourceFiles); i++)
 		{
-			g_memory_free(data->sourceFiles[i]);
+			g_memory_free(data->sourceFiles[i].filepath);
+			stbds_arrfree(data->sourceFiles[i].breakpoints);
 		}
 		stbds_arrfree(data->sourceFiles);
 
