@@ -17,6 +17,27 @@
 #include <stb/stb_ds.h>
 #include <cyaml.h>
 
+#include <Windows.h>
+
+#define BEGIN_CRITICAL_SECTION(lock) {\
+DWORD waitResult_##lock = WaitForSingleObject(lock, INFINITE);\
+if (waitResult_##lock == WAIT_OBJECT_0) {
+
+#define END_CRITICAL_SECTION(lock)\
+ReleaseMutex(lock);\
+}}\
+
+static HANDLE cpuThreadBreakFlagLock;
+static bool cpuThreadBreakFlag = false;
+static HANDLE shouldStepOverFlagLock;
+static bool shouldStepOverFlag = false;
+
+static CRITICAL_SECTION shouldCpuEmulateCriticalSection;
+static CONDITION_VARIABLE shouldCpuEmulateCondition;
+static bool shouldCpuEmulate = false;
+
+static HANDLE cpuThread;
+
 static void saveAppMetadata(const char* lastLoadedProject);
 static void loadAppMetadata(emu_app* app);
 static void freeAppData(emu_app_data* metadata);
@@ -28,6 +49,78 @@ static void flushScanf()
 {
 	char c;
 	while ((c = (char)getchar()) != '\n' && c != EOF);
+}
+
+
+static DWORD emulatorCpuThread(LPVOID lpParam)
+{
+	bool isBreakFlagEnabled = false;
+
+	EnterCriticalSection(&shouldCpuEmulateCriticalSection);
+
+	emu_virtualMachine* vm = (emu_virtualMachine*)lpParam;
+	emu_vmError error = emu_vmError_None;
+	while (error == emu_vmError_None || error == emu_vmError_Nop)
+	{
+
+		BEGIN_CRITICAL_SECTION(shouldStepOverFlagLock);
+		BEGIN_CRITICAL_SECTION(cpuThreadBreakFlagLock);
+
+		error = emu_vmError_None;
+		isBreakFlagEnabled = cpuThreadBreakFlag;
+		if (shouldStepOverFlag || !cpuThreadBreakFlag)
+		{
+			error = emu_vm_tick(vm);
+			shouldStepOverFlag = false;
+		}
+
+		END_CRITICAL_SECTION(cpuThreadBreakFlagLock);
+		END_CRITICAL_SECTION(shouldStepOverFlagLock);
+
+		// If the break flag is enabled, we can sleep for 100ms every loop just to make sure we don't spin tons of cycles waiting for it to change
+		if (isBreakFlagEnabled || !shouldCpuEmulate)
+		{
+			// This puts the thread to sleep efficiently.
+			// It atomically releases the lock and waits. 
+			// When woken up, it automatically re-acquires the lock.
+			SleepConditionVariableCS(&shouldCpuEmulateCondition, &shouldCpuEmulateCriticalSection, INFINITE);
+		}
+
+		if (!shouldCpuEmulate)
+		{
+			error = emu_vmError_Break;
+		}
+	}
+
+	LeaveCriticalSection(&shouldCpuEmulateCriticalSection);
+
+	return 0;
+}
+
+static void stopAndCleanUpCpuThread()
+{
+	if (cpuThread)
+	{
+		emu_app_debugBreak();
+		EnterCriticalSection(&shouldCpuEmulateCriticalSection);
+		shouldCpuEmulate = false;
+		LeaveCriticalSection(&shouldCpuEmulateCriticalSection);
+
+		// Wake up one thread waiting on this condition variable
+		WakeConditionVariable(&shouldCpuEmulateCondition);
+
+		WaitForSingleObject(cpuThread, INFINITE);
+
+		// Clean up thread resources
+		CloseHandle(cpuThread);
+		DeleteCriticalSection(&shouldCpuEmulateCriticalSection);
+		CloseHandle(shouldStepOverFlagLock);
+		CloseHandle(cpuThreadBreakFlagLock);
+		cpuThread = NULL;
+		shouldCpuEmulateCriticalSection = (CRITICAL_SECTION){0};
+		shouldStepOverFlagLock = NULL;
+		cpuThreadBreakFlagLock = NULL;
+	}
 }
 
 void emu_app_runTuiMode(emu_app* app, emu_assembler_program* program)
@@ -115,6 +208,30 @@ void emu_app_loadProgram(emu_app* app, const char** files, size_t numFiles)
 	app->isDebugging = true;
 
 	emu_EmulatorDebug_beginDebugging(app);
+
+	// Only begin emulating if we're not already debugging
+	if (!cpuThread)
+	{
+		// Initialize state, for now we'll initialize with the program already on break
+		// until we add proper breakpoint support
+		shouldStepOverFlag = false;
+		cpuThreadBreakFlag = true;
+		shouldCpuEmulate = true;
+
+		// Create the locks for our thread
+		shouldStepOverFlagLock = CreateMutexA(NULL, FALSE, NULL);
+		cpuThreadBreakFlagLock = CreateMutexA(NULL, FALSE, NULL);
+
+		InitializeCriticalSection(&shouldCpuEmulateCriticalSection);
+		InitializeConditionVariable(&shouldCpuEmulateCondition);
+
+		// Create thread for cpu to run on
+		cpuThread = CreateThread(NULL, 0, emulatorCpuThread, app->vm, 0, NULL);
+	}
+	else
+	{
+		emu_ConsoleOutput_error("Cannot begin debugging. Debugging already in progress.");
+	}
 }
 
 emu_app* emu_app_init(bool initializeGuiLayers)
@@ -133,7 +250,7 @@ emu_app* emu_app_init(bool initializeGuiLayers)
 		.vm = vm,
 		.sdl = NULL,
 		.program = NULL,
-		.isDebugging = true,
+		.isDebugging = false,
 	};
 	loadAppMetadata(res);
 
@@ -159,6 +276,31 @@ void emu_app_resumeApp()
 	isAppPaused = false;
 }
 
+void emu_app_debugBreak()
+{
+	BEGIN_CRITICAL_SECTION(cpuThreadBreakFlagLock);
+	cpuThreadBreakFlag = true;
+	END_CRITICAL_SECTION(cpuThreadBreakFlagLock);
+}
+
+void emu_app_debugStepOver()
+{
+	BEGIN_CRITICAL_SECTION(shouldStepOverFlagLock);
+	shouldStepOverFlag = true;
+	END_CRITICAL_SECTION(shouldStepOverFlagLock);
+
+	WakeConditionVariable(&shouldCpuEmulateCondition);
+}
+
+void emu_app_debugContinue()
+{
+	BEGIN_CRITICAL_SECTION(cpuThreadBreakFlagLock);
+	cpuThreadBreakFlag = false;
+	END_CRITICAL_SECTION(cpuThreadBreakFlagLock);
+
+	WakeConditionVariable(&shouldCpuEmulateCondition);
+}
+
 SDL_AppResult emu_app_handleEvent(emu_app* app, SDL_Event* event)
 {
 	if (isAppPaused)
@@ -181,18 +323,19 @@ SDL_AppResult emu_app_tick(emu_app* app)
 		return SDL_APP_CONTINUE;
 	}
 
+	// If we've stopped debugging for some reason, then clean up the thread resources
+	// and tell the thread to stop emulating
+	static bool lastFrameWasDebugging = false;
+	if (lastFrameWasDebugging && !app->isDebugging)
+	{
+		stopAndCleanUpCpuThread();
+	}
+	lastFrameWasDebugging = app->isDebugging;
+
 	SDL_AppResult res = emu_frontend_tick(app->sdl);
 	if (res != SDL_APP_CONTINUE)
 	{
 		return res;
-	}
-
-	if (!app->isDebugging && app->vm)
-	{
-		if (emu_vm_tick(app->vm) != emu_vmError_None)
-		{
-			app->isDebugging = true;
-		}
 	}
 
 	emu_cimgui_tickBegin(app);
@@ -204,6 +347,8 @@ void emu_app_free(emu_app* app)
 {
 	if (app)
 	{
+		stopAndCleanUpCpuThread();
+
 		// Save project on exit
 		emu_app_saveProject(app, app->appLoadedProjectFile);
 

@@ -310,19 +310,24 @@ static void hexMemoryViewer(emu_app* app)
 
 	if (ImGui_Button("Step Into"))
 	{
-		emu_vm_tick(vm);
+		emu_app_debugStepOver();
 	}
-
 	ImGui_SameLine();
 
 	if (ImGui_Button("Continue"))
 	{
-		app->isDebugging = false;
+		emu_app_debugContinue();
 	}
 
 	if (ImGui_Button("Break"))
 	{
-		app->isDebugging = true;
+		emu_app_debugBreak();
+	}
+	ImGui_SameLine();
+
+	if (ImGui_Button("Stop Debugging"))
+	{
+		app->isDebugging = false;
 	}
 
 	if (ImGui_BeginChild("Status Flags", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0))

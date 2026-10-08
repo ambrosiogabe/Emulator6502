@@ -4,9 +4,8 @@
 #include <stdio.h>
 #include <string.h>
 
-// TODO: Run emulator CPU on separate thread so we can achieve a speed of updating much faster than 1 instruction per 1/60 of a second
-#define NTSC_VBLANK_CYCLE 100 // 29'780.0f
-#define PAL_VBLANK_CYCLE 100 // 33'247.5f
+#define NTSC_VBLANK_CYCLE 29'780.0f
+#define PAL_VBLANK_CYCLE 33'247.5f
 
 // --------------- Internal Structures --------------- 
 typedef struct VmInstruction

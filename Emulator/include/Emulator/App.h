@@ -34,6 +34,10 @@ emu_app* emu_app_init(bool initializeGuiLayers);
 void emu_app_pauseApp();
 void emu_app_resumeApp();
 
+void emu_app_debugBreak();
+void emu_app_debugStepOver();
+void emu_app_debugContinue();
+
 void emu_app_loadProgram(emu_app* app, const char** files, size_t numFiles);
 
 SDL_AppResult emu_app_handleEvent(emu_app* app, SDL_Event* event);
