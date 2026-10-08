@@ -60,7 +60,7 @@ static DWORD emulatorCpuThread(LPVOID lpParam)
 
 	emu_virtualMachine* vm = (emu_virtualMachine*)lpParam;
 	emu_vmError error = emu_vmError_None;
-	while (error == emu_vmError_None || error == emu_vmError_Nop)
+	while (error == emu_vmError_None || error == emu_vmError_Nop || error == emu_vmError_Break)
 	{
 
 		BEGIN_CRITICAL_SECTION(shouldStepOverFlagLock);
@@ -72,6 +72,11 @@ static DWORD emulatorCpuThread(LPVOID lpParam)
 		{
 			error = emu_vm_tick(vm);
 			shouldStepOverFlag = false;
+
+			if (error == emu_vmError_Break)
+			{
+				cpuThreadBreakFlag = true;
+			}
 		}
 
 		END_CRITICAL_SECTION(cpuThreadBreakFlagLock);
@@ -88,7 +93,7 @@ static DWORD emulatorCpuThread(LPVOID lpParam)
 
 		if (!shouldCpuEmulate)
 		{
-			error = emu_vmError_Break;
+			error = emu_vmError_ExitProgram;
 		}
 	}
 
@@ -215,7 +220,7 @@ void emu_app_loadProgram(emu_app* app)
 		// Initialize state, for now we'll initialize with the program already on break
 		// until we add proper breakpoint support
 		shouldStepOverFlag = false;
-		cpuThreadBreakFlag = true;
+		cpuThreadBreakFlag = false;
 		shouldCpuEmulate = true;
 
 		// Create the locks for our thread

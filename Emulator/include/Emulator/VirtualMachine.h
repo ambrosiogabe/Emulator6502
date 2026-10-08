@@ -221,6 +221,7 @@ typedef enum emu_vmError
 	emu_vmError_NullVm,
 	emu_vmError_Nop,
 	emu_vmError_Break,
+	emu_vmError_ExitProgram,
 } emu_vmError;
 
 typedef enum emu_vmStatus

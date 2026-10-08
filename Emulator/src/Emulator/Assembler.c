@@ -12,6 +12,8 @@
 #include <stdarg.h>
 #include <ctype.h>
 
+#include <stb/stb_ds.h>
+
 #define EMIT_IMPLICIT_OPCODE(type) \
 case emu_Keyword_##type:\
 emu_emitOpcode(assembler, emu_vmInstruction_##type##_IMP);\
@@ -177,6 +179,7 @@ typedef struct emu_ProgramData
 	StringSet* importedLabels;
 	emu_PatchLocation* patches;
 	emu_StatementError exitCode;
+	const int* breakpoints;
 } emu_ProgramData;
 
 typedef struct emu_Assembler
@@ -194,7 +197,7 @@ typedef struct emu_Assembler
 } emu_Assembler;
 
 // Internal Functions
-static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char* filename);
+static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const emu_appData_SourceFile* file);
 static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program, bool cheapLabelsOnly);
 static void emu_clearCheapLocalLabels(emu_ProgramData* program);
 static void emu_patchAndClearCheapLocals(emu_Assembler* assembler);
@@ -272,7 +275,7 @@ emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* 
 	emu_ProgramData* assembledPrograms = NULL;
 	for (int i = 0; i < stbds_arrlen(sourceFiles); i++)
 	{
-		emu_ProgramData data = emu_assembleProgram(&assembler, sourceFiles[i].filepath);
+		emu_ProgramData data = emu_assembleProgram(&assembler, sourceFiles + i);
 		stbds_arrpush(assembledPrograms, data);
 	}
 
@@ -328,9 +331,9 @@ void emu_assembler_free(emu_assembler_program* program)
 }
 
 // Internal definitions
-static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char* filename)
+static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const emu_appData_SourceFile* file)
 {
-	emu_TokenList tokenList = emu_parser_parseFile(filename);
+	emu_TokenList tokenList = emu_parser_parseFile(file->filepath);
 	emu_TokenList* tokenListCopy = g_memory_allocate(sizeof(emu_TokenList));
 	g_memory_copyMem(tokenListCopy, &tokenList, sizeof(emu_TokenList));
 	emu_ProgramData currentProgram = {
@@ -340,7 +343,8 @@ static emu_ProgramData emu_assembleProgram(emu_Assembler* assembler, const char*
 		.exportedLabels = NULL,
 		.importedLabels = NULL,
 		.patches = NULL,
-		.file = filename,
+		.file = file->filepath,
+		.breakpoints = file->breakpoints,
 	};
 	assembler->currentProgram = &currentProgram;
 
@@ -583,25 +587,42 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 		return emu_StatementError_EOF;
 	}
 
+	emu_StatementError res = emu_StatementError_Invalid;
+	// See if one of our breakpoints lands on this token, and if it does, insert a break in the bytecode
+	for (int i = 0; i < stbds_arrlen(assembler->currentProgram->breakpoints); i++)
+	{
+		if (assembler->currentProgram->breakpoints[i] == token->line)
+		{
+			emu_emitByte(assembler, emu_vmInstruction_BRK);
+		}
+	}
+
 	switch (token->type)
 	{
 	case emu_TokenType_Keyword:
-		return assembleInstruction(assembler, token);
+		res = assembleInstruction(assembler, token);
+		break;
 	case emu_TokenType_Symbol:
-		return parseLabel(assembler, token);
+		res = parseLabel(assembler, token);
+		break;
 	case emu_TokenType_CheapSymbol:
-		return parseCheapLocalLabel(assembler, token);
+		res = parseCheapLocalLabel(assembler, token);
+		break;
 	case emu_TokenType_Colon:
-		return parseAnonymousLabel(assembler, token);
+		res = parseAnonymousLabel(assembler, token);
+		break;
 	case emu_TokenType_Comment:
-		return emu_StatementError_None;
+		res = emu_StatementError_None;
+		break;
 	case emu_TokenType_ControlCommand:
-		return assembleControlCommand(assembler, token);
+		res = assembleControlCommand(assembler, token);
+		break;
 	default:
 		g_logger_error("No support for token type: '%s'", emu_TokenTypes[token->type]);
+		break;
 	}
 
-	return emu_StatementError_Invalid;
+	return res;
 }
 
 static emu_StatementError parseLabel(emu_Assembler* assembler, emu_Token const* token)
