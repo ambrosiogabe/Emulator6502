@@ -563,7 +563,7 @@ static uint16 emu_parseAddressConstantWithLength(emu_Parser* parser, bool oneByt
 		return 0;
 	}
 
-	*isAbsolute = digitCharLength > 2;
+	*isAbsolute = result > UINT8_MAX;
 	return result;
 }
 

@@ -1,11 +1,13 @@
 #include "Emulator/VirtualMachine.h"
-#include "Emulator/Assembler.h"
+#include "Emulator/NesBinaryFile.h"
 
 #include <stdio.h>
 #include <string.h>
 
-#define NTSC_VBLANK_CYCLE 29'780.0f
+//#define NTSC_VBLANK_CYCLE 29'780.0f
+//#define NTSC_NS_PER_CYCLE 558.73
 #define PAL_VBLANK_CYCLE 33'247.5f
+#define PAL_NS_PER_CYCLE 601.47f
 
 // --------------- Internal Structures --------------- 
 typedef struct VmInstruction
@@ -23,16 +25,20 @@ static uint8 popFromStack(emu_virtualMachine* vm);
 static void jumpToNonMaskableInterrupt(emu_virtualMachine* vm);
 static void returnFromNonMaskableInterrupt(emu_virtualMachine* vm);
 
+static uint16 getGlobalIndirectAddress(uint8 hi, uint8 lo, uint8 offset);
+static uint16 getGlobalAddress(uint8 hi, uint8 lo);
+static void writeDataToCpu(emu_virtualMachine* vm, uint16 address, uint8 value);
+static uint8 getDataFromCpu(emu_virtualMachine* vm, uint16 address);
+
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 value);
-static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress);
-static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address);
-static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress);
+static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
+static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction);
 static void addWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void subtractWithCarry(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void compare(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
-static void decrement(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
-static void increment(emu_virtualMachine* vm, emu_vmInstruction, uint8 address);
+static void decrement(emu_virtualMachine* vm, uint8 address);
+static void increment(emu_virtualMachine* vm, uint8 address);
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalAnd(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
 static void logicalXor(emu_virtualMachine* vm, emu_vmInstruction, uint8 value);
@@ -45,11 +51,11 @@ static void bitComparison(emu_virtualMachine* vm, emu_vmInstruction instruction,
 static void checkFlagStatuses(emu_virtualMachine* vm, uint8 flagsToCheck, uint8 value);
 static void checkOverflowFlag(emu_virtualMachine* vm, int16 value);
 
-#define INSTRUCTION_EXPANSION(caseName, function) \
+#define INSTRUCTION_EXPANSION_BY_VALUE(caseName, function) \
 case caseName:\
 {\
-  uint8 byte = getNext(vm);\
-  function(vm, instruction, byte);\
+  uint8 value = getNext(vm);\
+  function(vm, instruction, value);\
 }\
 break
 
@@ -57,7 +63,11 @@ break
 case caseName:\
 {\
   uint8 address = getNext(vm);\
-  function(vm, instruction, emu_mmap_getNesAddress(&vm->mmap, address)[0]);\
+  emu_chip_cpuWriteAddress(vm, address);\
+  emu_chip_setReadWrite(vm, emu_RW_Read);\
+  emu_chip_cycle(vm);\
+  uint8 data = emu_chip_cpuReadDataBus(vm);\
+  function(vm, instruction, data);\
 }\
 break
 
@@ -67,7 +77,11 @@ case caseName:\
   uint8 lo = getNext(vm);\
   uint8 hi = getNext(vm);\
   uint16 globalAddress = (hi << 8) | lo;\
-  function(vm, instruction, emu_mmap_getNesAddress(&vm->mmap, globalAddress)[0]);\
+  emu_chip_cpuWriteAddress(vm, globalAddress);\
+  emu_chip_setReadWrite(vm, emu_RW_Read);\
+  emu_chip_cycle(vm);\
+  uint8 data = emu_chip_cpuReadDataBus(vm);\
+  function(vm, instruction, data);\
 }\
 break
 
@@ -84,14 +98,11 @@ break
 #define BRANCH_ON_STATUS_SET_BASE(caseName, status, op) \
 case caseName:\
 {\
-  uint8 address0 = getNext(vm);\
-  uint8 address1 = getNext(vm);\
+  int8 relativeAddress = getNext(vm);\
 \
   if (op emu_vm_getStatus(vm, emu_vmStatus_##status))\
   {\
-	  int16 relativeAddress = ((uint16)address1 << 8) | address0;\
-	  /* We need to subtract the 2 bytes that our program counter has already incremented */\
-	  vm->programCounter += (relativeAddress - 2);\
+	  vm->programCounter += relativeAddress;\
   }\
 }\
 break
@@ -101,6 +112,11 @@ break
 
 const char* emu_vmInstructions[EMU_MAX_INSTRUCTION_OPCODE + 1] = { 0 };
 uint8 emu_instructionCycleCount[EMU_MAX_INSTRUCTION_OPCODE + 1] = { 0 };
+
+int64 emu_vm_getFrameTimeNs()
+{
+	return (int64)(PAL_VBLANK_CYCLE * PAL_NS_PER_CYCLE);
+}
 
 void emu_vm_initMeta()
 {
@@ -119,6 +135,7 @@ void emu_vm_initMeta()
 	emu_vmInstructions[emu_vmInstruction_SEI_IMP] = "SEI_IMP";
 	emu_vmInstructions[emu_vmInstruction_SED_IMP] = "SED_IMP";
 	emu_vmInstructions[emu_vmInstruction_RTS_IMP] = "RTS_IMP";
+	emu_vmInstructions[emu_vmInstruction_RTI_IMP] = "RTI_IMP";
 	// -- OR instructions --
 	emu_vmInstructions[emu_vmInstruction_ORA_IMM] = "ORA_IMM";
 	emu_vmInstructions[emu_vmInstruction_ORA_ZP] = "ORA_ZP";
@@ -544,6 +561,7 @@ emu_virtualMachine emu_vm_sizedInit(size_t physicalMemorySize, emu_vmType vmType
 	}
 
 	emu_MemoryMap memoryMap = emu_mmap_newNesMap(physicalMemorySize);
+	emu_Ppu_MemoryMap ppuMmap = emu_mmap_newNesPpuMap();
 
 	emu_virtualMachine vm = {
 		.vmType = vmType,
@@ -556,40 +574,60 @@ emu_virtualMachine emu_vm_sizedInit(size_t physicalMemorySize, emu_vmType vmType
 		.cycleCount = 0,
 
 		.mmap = memoryMap,
+		.ppuMmap = ppuMmap,
+		.cpuChip = { 0 },
+		.ppuChip = { 0 },
+		.staticRam = { 0 },
+		.cartridge = { 0 },
+		.chipEnable = 0,
 	};
 	return vm;
 }
 
-emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* program)
+emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_NesBinaryFile* program)
 {
 	// Check assertions
 	if (vm == NULL)
 	{
 		return emu_vmError_NullVm;
 	}
-
-	// TODO: In the future, read the header and make the appropriate adjustments
-	//       For now, we'll just discard it
-
-	if (emu_mmap_getSize(vm->mmap.as.nes.rom) < program->romSize)
+	
+	// TODO: Move this to some sort of freeing thing for cartridges and stuff...
+	// If a program is already loaded, unload it to load the new one
+	if (vm->cartridge.prgRom)
 	{
-		g_logger_error("Not enough room in program for rom: %u < %u", emu_mmap_getSize(vm->mmap.as.nes.rom), program->romSize);
-		return emu_vmError_NotEnoughROM;
+		g_memory_free(vm->cartridge.prgRom);
+		vm->cartridge.numPrgRomPages = 0;
 	}
 
-	// Load the program into ROM
-	uint8* romPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.rom.start;
-	g_memory_copyMem(romPtr, program->rom, program->romSize);
-
-	// Set all instructions after end of program to illegal opcodes
-	for (size_t i = program->romSize; i < emu_mmap_getSize(vm->mmap.as.nes.rom); i++)
+	if (vm->cartridge.chrRom)
 	{
-		romPtr[i] = emu_vmInstruction_BRK;
+		g_memory_free(vm->cartridge.chrRom);
+		vm->cartridge.numChrRomPages = 0;
 	}
 
-	// Load the hardware vectors at the end of rom
-	uint8* hardwareVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
-	g_memory_copyMem(hardwareVectorPtr, program->romv, program->romvSize);
+	// TODO: We're only working with mapper chip 0, NROM
+	//       so we're hard coding how to load that ROM. In the future
+	//       we need to properly emulate how to read/mirror PRG ROM
+	uint8* romPtr = vm->mmap.physicalMemory + vm->mmap.rom.start;
+	g_logger_assert(program->header.numPrgRomPages <= 2, "Cannot handle more than 2 ROM pages right now.");
+	g_memory_copyMem(romPtr, program->prgRom, KB(16) * program->header.numPrgRomPages);
+	// Mirror ROM if needed
+	if (program->header.numPrgRomPages == 1)
+	{
+		g_memory_copyMem(KB(16) + romPtr, program->prgRom, KB(16));
+	}
+
+	// TODO: Make sure all ROM reads (including Program Counter) go through this chip
+	size_t prgRomSize = program->header.numPrgRomPages * KB(16);
+	vm->cartridge.numPrgRomPages = program->header.numPrgRomPages;
+	vm->cartridge.prgRom = g_memory_allocate(prgRomSize);
+	g_memory_copyMem(vm->cartridge.prgRom, program->prgRom, prgRomSize);
+	
+	size_t chrRomSize = program->header.numChrRomPages * KB(8);
+	vm->cartridge.numChrRomPages = program->header.numChrRomPages;
+	vm->cartridge.chrRom = g_memory_allocate(chrRomSize);
+	g_memory_copyMem(vm->cartridge.chrRom, program->chrRom, chrRomSize);
 
 	return emu_vmError_None;
 }
@@ -612,14 +650,13 @@ emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm)
 	vm->statusReg = 0;
 
 	// NOTE: We don't do anything with ROM here because on reset, only ram should be cleared.
-	uint8* ramPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.ram.start;
-	g_memory_zeroMem(ramPtr, emu_mmap_getSize(vm->mmap.as.nes.ram));
+	g_memory_zeroMem(vm->staticRam.ram, sizeof(vm->staticRam.ram));
 
 	// Read the reset vector into our program counter so we know where to start executing code.
-	uint8* hardwareVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
-	uint8* resetVector = hardwareVectorPtr + 2;
-	vm->programCounter = resetVector[0];
-	vm->programCounter |= (resetVector[1] << 8);
+	uint8 resetLo = getDataFromCpu(vm, vm->mmap.romv.start + 2);
+	uint8 resetHi = getDataFromCpu(vm, vm->mmap.romv.start + 3);
+	vm->programCounter = resetLo;
+	vm->programCounter |= (resetHi << 8);
 
 	return emu_vmError_None;
 }
@@ -641,14 +678,14 @@ emu_vmError emu_vm_tick(emu_virtualMachine* vm)
 	vm->cycleCount += emu_instructionCycleCount[instruction];
 
 	// TODO: Make PAL vs NTSC timings configurable via editor
-	static bool done = false;
-	if (!done && vm->cycleCount >= PAL_VBLANK_CYCLE)
+	if (vm->cycleCount >= PAL_VBLANK_CYCLE)
 	{
 		// Trigger NMI, right now we don't actually display anything to the screen, but we will eventually
 		// When we trigger an NMI, we need to set bit 7 of $2002 to 1
-		vm->mmap.physicalMemory[0x2002] = 0b010000000;
+		vm->ppuChip.status = (uint8)0b10000000;
 		jumpToNonMaskableInterrupt(vm);
-		done = true;
+		vm->cycleCount = 0;
+		return emu_vmError_Vblank;
 	}
 
 	return emu_vmError_None;
@@ -715,6 +752,11 @@ uint8 emu_vm_instructionNumArgs(emu_vmInstruction instruction)
 		return 1;
 	}
 
+	if (strcmp(instructionType, "ZPX") == 0)
+	{
+		return 2;
+	}
+
 	if (strcmp(instructionType, "IMP") == 0)
 	{
 		return 0;
@@ -742,7 +784,7 @@ uint8 emu_vm_instructionNumArgs(emu_vmInstruction instruction)
 
 	if (strcmp(instructionType, "REL") == 0)
 	{
-		return 2;
+		return 1;
 	}
 
 	return 0;
@@ -774,56 +816,84 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 	switch (instruction)
 	{
 		// Store
-		INSTRUCTION_EXPANSION(emu_vmInstruction_STA_ZP, storeRamValue);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_STX_ZP, storeRamValue);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_STY_ZP, storeRamValue);
+	case emu_vmInstruction_STA_ZP:
+	case emu_vmInstruction_STX_ZP:
+	case emu_vmInstruction_STY_ZP:
+	{
+		uint8 address = getNext(vm);
+		writeDataToCpu(vm, address, getRegisterValue(vm, instruction));
+	}
+	break;
+	// Store ZP indirect
+	case emu_vmInstruction_STA_ZPX:
+	{
+		uint8 address = getNext(vm);
+		uint16 globalAddress = getGlobalIndirectAddress(0, address, vm->xReg);
+		writeDataToCpu(vm, globalAddress, getRegisterValue(vm, instruction));
+	}
+	break;
+	// Decrement
+	case emu_vmInstruction_DEC_ZP:
+	{
+		uint8 address = getNext(vm);
+		decrement(vm, address);
+	}
+	break;
+	// Increment
+	case emu_vmInstruction_INC_ZP:
+	{
+		uint8 address = getNext(vm);
+		increment(vm, address);
+	}
+	break;
+	// Store absolute
+	case emu_vmInstruction_STA_ABX:
+	case emu_vmInstruction_STA_ABS:
+	case emu_vmInstruction_STX_ABS:
+		storeAbsRamValue(vm, instruction);
+		break;
+		// Load absolute
+	case emu_vmInstruction_LDA_ABX:
+	case emu_vmInstruction_LDA_ABS:
+		setAbsRegisterValue(vm, instruction);
+		break;
 		// Load
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_LDA_ZP, setRegisterValue);
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_LDX_ZP, setRegisterValue);
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_LDY_ZP, setRegisterValue);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_LDA_IMM, setRegisterValue);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_LDX_IMM, setRegisterValue);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_LDY_IMM, setRegisterValue);
-		// Load absolute
-		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_LDA_ABX, setAbsRegisterValue);
-		// Store absolute
-		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STA_ABX, storeAbsRamValue);
-		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STA_ABS, storeAbsRamValue);
-		INSTRUCTION_EXPANSION_LONG_RAM(emu_vmInstruction_STX_ABS, storeAbsRamValue);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_LDA_IMM, setRegisterValue);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_LDX_IMM, setRegisterValue);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_LDY_IMM, setRegisterValue);
 		// Add with carry
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ADC_ZP, addWithCarry);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_ADC_IMM, addWithCarry);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_ADC_IMM, addWithCarry);
 		// Sub with carry
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_SBC_ZP, subtractWithCarry);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_SBC_IMM, subtractWithCarry);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_SBC_IMM, subtractWithCarry);
 		// Compare
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CMP_ZP, compare);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_CMP_IMM, compare);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_CMP_IMM, compare);
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CPX_ZP, compare);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_CPX_IMM, compare);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_CPX_IMM, compare);
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_CPY_ZP, compare);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_CPY_IMM, compare);
-		// Decrement
-		INSTRUCTION_EXPANSION(emu_vmInstruction_DEC_ZP, decrement);
-		// Increment
-		INSTRUCTION_EXPANSION(emu_vmInstruction_INC_ZP, increment);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_CPY_IMM, compare);
 		// Logical OR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_ORA_ZP, logicalOr);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_ORA_IMM, logicalOr);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_ORA_IMM, logicalOr);
 		// Logical AND
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_AND_ZP, logicalAnd);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_AND_IMM, logicalAnd);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_AND_IMM, logicalAnd);
 		// Logical XOR
 		INSTRUCTION_EXPANSION_RAM(emu_vmInstruction_EOR_ZP, logicalXor);
-		INSTRUCTION_EXPANSION(emu_vmInstruction_EOR_IMM, logicalXor);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_EOR_IMM, logicalXor);
 		// Arithmetic Shift Left
-		INSTRUCTION_EXPANSION(emu_vmInstruction_ASL_ZP, arithmeticShiftLeft);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_ASL_ZP, arithmeticShiftLeft);
 		// Rotate Left
-		INSTRUCTION_EXPANSION(emu_vmInstruction_ROL_ZP, rotateLeft);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_ROL_ZP, rotateLeft);
 		// Logical Shift Right
-		INSTRUCTION_EXPANSION(emu_vmInstruction_LSR_ZP, logicalShiftRight);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_LSR_ZP, logicalShiftRight);
 		// Rotate Right
-		INSTRUCTION_EXPANSION(emu_vmInstruction_ROR_ZP, rotateRight);
+		INSTRUCTION_EXPANSION_BY_VALUE(emu_vmInstruction_ROR_ZP, rotateRight);
 		// Comparison instructions
 		BRANCH_ON_STATUS_SET(emu_vmInstruction_BMI_REL, Negative);
 		BRANCH_ON_STATUS_SET(emu_vmInstruction_BVS_REL, Overflow);
@@ -964,12 +1034,7 @@ static void executeInstruction(emu_virtualMachine* vm, emu_vmInstruction instruc
 
 static uint8 getNext(emu_virtualMachine* vm)
 {
-	uint8 nextInstruction = emu_vmInstruction_NOP;
-	if (vm->programCounter < vm->mmap.physicalMemorySize)
-	{
-		nextInstruction = emu_mmap_getNesAddress(&vm->mmap, vm->programCounter)[0];
-	}
-
+	uint8 nextInstruction = getDataFromCpu(vm, vm->programCounter);
 	vm->programCounter++;
 	return nextInstruction;
 }
@@ -981,7 +1046,8 @@ static void pushToStack(emu_virtualMachine* vm, uint8 byte)
 		g_logger_error("Stack overflow.");
 	}
 
-	uint8* stack = vm->mmap.physicalMemory + vm->mmap.as.nes.stack.start;
+	emu_SRam* sram = &vm->staticRam;
+	uint8* stack = sram->ram + STACK_BASE;
 	stack[vm->stackPointer] = byte;
 	vm->stackPointer--;
 }
@@ -994,7 +1060,8 @@ static uint8 popFromStack(emu_virtualMachine* vm)
 		return 0;
 	}
 
-	uint8* stack = vm->mmap.physicalMemory + vm->mmap.as.nes.stack.start;
+	emu_SRam* sram = &vm->staticRam;
+	uint8* stack = sram->ram + STACK_BASE;
 	uint8 res = stack[vm->stackPointer + 1];
 	vm->stackPointer++;
 	return res;
@@ -1003,9 +1070,8 @@ static uint8 popFromStack(emu_virtualMachine* vm)
 static void jumpToNonMaskableInterrupt(emu_virtualMachine* vm)
 {
 	// First fetch the nmi address from our hardware vectors
-	uint8* nmiVectorPtr = vm->mmap.physicalMemory + vm->mmap.as.nes.romv.start;
-	uint8 address0 = nmiVectorPtr[0];
-	uint8 address1 = nmiVectorPtr[1];
+	uint8 address0 = getDataFromCpu(vm, vm->mmap.romv.start);
+	uint8 address1 = getDataFromCpu(vm, vm->mmap.romv.start + 1);
 
 	uint16 globalNmiAddress = ((uint16)address1 << 8) | address0;
 
@@ -1041,6 +1107,32 @@ static void returnFromNonMaskableInterrupt(emu_virtualMachine* vm)
 	emu_vm_clearStatus(vm, emu_vmStatus_InterruptDisable);
 }
 
+static void writeDataToCpu(emu_virtualMachine* vm, uint16 address, uint8 value)
+{
+	emu_chip_cpuWriteAddress(vm, address);
+	emu_chip_cpuWriteToDataBus(vm, value);
+	emu_chip_setReadWrite(vm, emu_RW_Write);
+	emu_chip_cycle(vm);
+}
+
+static uint8 getDataFromCpu(emu_virtualMachine* vm, uint16 address)
+{
+	emu_chip_cpuWriteAddress(vm, address);
+	emu_chip_setReadWrite(vm, emu_RW_Read);
+	emu_chip_cycle(vm);
+	return emu_chip_cpuReadDataBus(vm);
+}
+
+static uint16 getGlobalAddress(uint8 hi, uint8 lo)
+{
+	return (uint16)((hi << 8) | lo);
+}
+
+static uint16 getGlobalIndirectAddress(uint8 hi, uint8 lo, uint8 offset)
+{
+	return getGlobalAddress(hi, lo) + offset;
+}
+
 static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction)
 {
 	switch (instruction)
@@ -1048,6 +1140,7 @@ static uint8 getRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruct
 	case emu_vmInstruction_STA_ZP:
 	case emu_vmInstruction_CMP_ZP:
 	case emu_vmInstruction_CMP_IMM:
+	case emu_vmInstruction_STA_ZPX:
 		return vm->accumulatorReg;
 	case emu_vmInstruction_STX_ZP:
 	case emu_vmInstruction_CPX_ZP:
@@ -1071,6 +1164,8 @@ static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 	case emu_vmInstruction_LDA_IMM:
 	case emu_vmInstruction_CMP_ZP:
 	case emu_vmInstruction_CMP_IMM:
+	case emu_vmInstruction_LDA_ABX:
+	case emu_vmInstruction_LDA_ABS:
 		vm->accumulatorReg = value;
 		break;
 	case emu_vmInstruction_LDX_IMM:
@@ -1091,38 +1186,46 @@ static void setRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instructi
 	}
 }
 
-static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress)
+static void setAbsRegisterValue(emu_virtualMachine* vm, emu_vmInstruction instruction)
 {
-	switch (instruction)
+	uint8 lo = getNext(vm);
+	uint8 hi = getNext(vm);
+
+	uint8 offset = 0;
+	if (instruction == emu_vmInstruction_LDA_ABX)
 	{
-	case emu_vmInstruction_LDA_ABX:
-		vm->accumulatorReg = baseAddress[vm->xReg];
-		break;
-	default:
-		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);
-		break;
+		offset = vm->xReg;
 	}
+
+	uint16 globalAddress = getGlobalIndirectAddress(hi, lo, offset);
+	setRegisterValue(vm, instruction, getDataFromCpu(vm, globalAddress));
 }
 
-static void storeRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8 address)
+static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction)
 {
-	uint8* ramPtr = emu_mmap_getNesAddress(&vm->mmap, address);
-	*ramPtr = getRegisterValue(vm, instruction);
-}
+	uint8 lo = getNext(vm);
+	uint8 hi = getNext(vm);
 
-static void storeAbsRamValue(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8* baseAddress)
-{
 	switch (instruction)
 	{
 	case emu_vmInstruction_STA_ABX:
-		baseAddress[vm->xReg] = vm->accumulatorReg;
-		break;
+	{
+		uint16 globalAddress = getGlobalIndirectAddress(hi, lo, vm->xReg);
+		writeDataToCpu(vm, globalAddress, vm->accumulatorReg);
+	}
+	break;
 	case emu_vmInstruction_STA_ABS:
-		baseAddress[0] = vm->accumulatorReg;
-		break;
+	{
+		uint16 globalAddress = getGlobalAddress(hi, lo);
+		writeDataToCpu(vm, globalAddress, vm->accumulatorReg);
+	}
+	break;
 	case emu_vmInstruction_STX_ABS:
-		baseAddress[0] = vm->xReg;
-		break;
+	{
+		uint16 globalAddress = getGlobalAddress(hi, lo);
+		writeDataToCpu(vm, globalAddress, vm->xReg);
+	}
+	break;
 	default:
 		g_logger_error("Cannot set register value for instruction '%s'", emu_vmInstructions[instruction]);
 		break;
@@ -1183,18 +1286,20 @@ static void compare(emu_virtualMachine* vm, emu_vmInstruction instruction, uint8
 	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, res);
 }
 
-static void decrement(emu_virtualMachine* vm, emu_vmInstruction _, uint8 address)
+static void decrement(emu_virtualMachine* vm, uint8 address)
 {
-	uint8* ramPtr = emu_mmap_getNesAddress(&vm->mmap, address);
-	*ramPtr = *ramPtr - 1;
-	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, *ramPtr);
+	uint8 value = getDataFromCpu(vm, address);
+	value--;
+	writeDataToCpu(vm, address, value);
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, value);
 }
 
-static void increment(emu_virtualMachine* vm, emu_vmInstruction _, uint8 address)
+static void increment(emu_virtualMachine* vm, uint8 address)
 {
-	uint8* ramPtr = emu_mmap_getNesAddress(&vm->mmap, address);
-	*ramPtr = *ramPtr + 1;
-	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, *ramPtr);
+	uint8 value = getDataFromCpu(vm, address);
+	value++;
+	writeDataToCpu(vm, address, value);
+	checkFlagStatuses(vm, emu_vmStatus_Zero | emu_vmStatus_Negative, value);
 }
 
 static void logicalOr(emu_virtualMachine* vm, emu_vmInstruction _, uint8 value)

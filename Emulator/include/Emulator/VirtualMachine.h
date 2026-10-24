@@ -3,7 +3,7 @@
 #include "utils/SafeVendor.h"
 #include "Emulator/MemoryMap.h"
 
-typedef struct emu_assembler_program emu_assembler_program;
+typedef struct emu_NesBinaryFile emu_NesBinaryFile;
 
 typedef enum emu_vmType
 {
@@ -221,6 +221,7 @@ typedef enum emu_vmError
 	emu_vmError_NullVm,
 	emu_vmError_Nop,
 	emu_vmError_Break,
+	emu_vmError_Vblank,
 	emu_vmError_ExitProgram,
 } emu_vmError;
 
@@ -248,8 +249,15 @@ typedef struct emu_virtualMachine
 	uint64 cycleCount;
 
 	emu_MemoryMap mmap;
+	emu_Ppu_MemoryMap ppuMmap;
+	emu_Cpu cpuChip;
+	emu_SRam staticRam;
+	emu_Ppu ppuChip;
+	emu_Cartridge cartridge;
+	emu_Chips chipEnable;
 } emu_virtualMachine;
 
+int64 emu_vm_getFrameTimeNs();
 void emu_vm_initMeta();
 void emu_vm_printOpcodes(uint8* program, size_t programSize);
 void emu_vm_printStatusFlags(emu_virtualMachine* vm);
@@ -265,7 +273,7 @@ uint8* emu_vm_getAddress(emu_virtualMachine* vm, uint16 address);
 emu_virtualMachine emu_vm_init(emu_vmType vmType);
 emu_virtualMachine emu_vm_sizedInit(size_t physicalMemorySize, emu_vmType vmType);
 
-emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_assembler_program* program);
+emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_NesBinaryFile* program);
 
 emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm);
 

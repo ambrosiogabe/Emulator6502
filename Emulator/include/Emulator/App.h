@@ -8,7 +8,7 @@ typedef struct emu_virtualMachine emu_virtualMachine;
 typedef struct emu_assembler_program emu_assembler_program;
 typedef struct emu_sdl_wrapper emu_sdl_wrapper;
 typedef struct ImGuiContext_t ImGuiContext;
-typedef struct emu_assembler_program emu_assembler_program;
+typedef struct emu_NesBinaryFile emu_NesBinaryFile;
 
 typedef struct emu_appData_SourceFile
 {
@@ -26,7 +26,7 @@ typedef struct emu_app_data
 
 typedef struct emu_app
 {
-	emu_assembler_program* program;
+	emu_NesBinaryFile* program;
 	emu_debugger* debugger;
 	emu_virtualMachine* vm;
 	emu_sdl_wrapper* sdl;

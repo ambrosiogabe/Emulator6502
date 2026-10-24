@@ -190,10 +190,10 @@ static void hexMemoryViewer(emu_app* app)
 							ImGui_SameLineEx(0.0f, 0.0f);
 						}
 
-						for (size_t byteIndex = mmapByteIndex + 1; byteIndex < mmapByteIndex + numArgs + 1; byteIndex++)
+						for (int64 byteIndex = mmapByteIndex + numArgs; byteIndex > mmapByteIndex; byteIndex--)
 						{
 							ImGui_Text("%02X", mmap->physicalMemory[byteIndex]);
-							if (byteIndex < mmapByteIndex + numArgs + 1)
+							if (byteIndex > mmapByteIndex)
 								ImGui_SameLineEx(0.0f, 0.0f);
 						}
 
@@ -201,6 +201,77 @@ static void hexMemoryViewer(emu_app* app)
 					}
 				}
 
+				ImGui_EndTable();
+			}
+
+			ImGui_EndTabItem();
+		}
+
+		if (ImGui_BeginTabItem("Static RAM", NULL, 0))
+		{
+			if (ImGui_BeginTable("##DebugHexStaticRamViewerTable", 4, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY))
+			{
+				if (shouldSeekAddress)
+				{
+					float rowHeight = ImGui_GetTextLineHeightWithSpacing();
+					ImGui_SetScrollY(rowHeight * (float)(addressToSeek / 16));
+
+					shouldSeekAddress = false;
+				}
+
+				ImGuiListClipper clipper;
+				ImGuiListClipper_Begin(&clipper, (int)(sizeof(vm->staticRam) / 16), -1.0f);
+				while (ImGuiListClipper_Step(&clipper))
+				{
+					for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++)
+					{
+						size_t i = row * 16;
+
+						ImGui_TableNextRow();
+						ImGui_TableSetColumnIndex(0);
+						ImGui_Text("0x%04X:", i);
+
+						ImGui_TableSetColumnIndex(1);
+						for (size_t byteIndex = i; byteIndex < i + 16; byteIndex++)
+						{
+							if (byteIndex == i + 8)
+							{
+								ImGui_SameLine();
+								ImGui_Spacing();
+								ImGui_TableSetColumnIndex(2);
+							}
+
+							uint8 value = vm->staticRam.ram[byteIndex];
+							ImVec4 color = value == 0
+								? commentColor
+								: theme->defaultColor;
+							ImGui_TextColored(color, "%02X", value);
+							if (byteIndex < i + 16)
+								ImGui_SameLine();
+						}
+
+						ImGui_SameLine();
+						ImGui_Spacing();
+
+						ImGui_TableSetColumnIndex(3);
+						for (size_t byteIndex = i; byteIndex < i + 16; byteIndex++)
+						{
+							bool useDarkColor = false;
+							char c = mmap->physicalMemory[byteIndex];
+							if (!ImFont_IsGlyphInFont(font, c) || c == 0)
+							{
+								useDarkColor = true;
+								c = '.';
+							}
+
+							ImVec4 color = useDarkColor
+								? commentColor
+								: theme->defaultColor;
+							ImGui_TextColored(color, "%c", c);
+							ImGui_SameLineEx(0.0f, 0.0f);
+						}
+					}
+				}
 				ImGui_EndTable();
 			}
 

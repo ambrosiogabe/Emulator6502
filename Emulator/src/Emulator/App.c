@@ -3,6 +3,7 @@
 #include "Emulator/VirtualMachine.h"
 #include "Emulator/Assembler.h"
 #include "Emulator/Types.h"
+#include "Emulator/NesBinaryFile.h"
 #include "utils/FileHelper.h"
 #include "frontend/SdlWrapper.h"
 #include "frontend/ImGuiLayer.h"
@@ -13,11 +14,14 @@
 
 #include <conio.h>
 #include <stdio.h>
+#include <time.h>
 
 #include <stb/stb_ds.h>
 #include <cyaml.h>
 
 #include <Windows.h>
+#include <mmsystem.h>
+#pragma comment(lib, "winmm.lib")
 
 #define BEGIN_CRITICAL_SECTION(lock) {\
 DWORD waitResult_##lock = WaitForSingleObject(lock, INFINITE);\
@@ -26,6 +30,9 @@ if (waitResult_##lock == WAIT_OBJECT_0) {
 #define END_CRITICAL_SECTION(lock)\
 ReleaseMutex(lock);\
 }}\
+
+#define NS_TO_MS(nanoseconds) (nanoseconds / 1'000'000LL)
+#define MS_TO_NS(milliseconds) (milliseconds * 1'000'000LL)
 
 static HANDLE cpuThreadBreakFlagLock;
 static bool cpuThreadBreakFlag = false;
@@ -45,6 +52,43 @@ static void freeAppData(emu_app_data* metadata);
 static bool isAppPaused = false;
 static const char* appLoadedProjectFile = "./appMetadata.yml";
 
+// Helper to get current time in nanoseconds
+static int64 getTimeNanoseconds()
+{
+	LARGE_INTEGER freq, counter;
+	QueryPerformanceFrequency(&freq);
+	QueryPerformanceCounter(&counter);
+	return (counter.QuadPart * 1000000000LL) / freq.QuadPart; // nanoseconds
+}
+
+static void preciseSleepFor(int64 numNanoseconds)
+{
+	int64 nowNs = getTimeNanoseconds();
+	int64 timeToSleepTil = nowNs + numNanoseconds;
+	while (timeToSleepTil - nowNs > 0)
+	{
+		nowNs = getTimeNanoseconds();
+		int64 remainderNs = timeToSleepTil - nowNs;
+
+		if (nowNs <= 0)
+		{
+			break;
+		}
+
+		// If more than 3ms left, sleep for (remainder - 2ms) to avoid overshooting
+		if (NS_TO_MS(remainderNs) > 3)
+		{
+
+			Sleep((DWORD)(NS_TO_MS(remainderNs) - 2));
+		}
+		else
+		{
+			// Spin-lock for the final few milliseconds/microseconds
+			_mm_pause(); // Hints to the CPU that we are in a spin-wait loop
+		}
+	}
+}
+
 static void flushScanf()
 {
 	char c;
@@ -54,15 +98,19 @@ static void flushScanf()
 
 static DWORD emulatorCpuThread(LPVOID lpParam)
 {
+	// Tell windows to give us 1ms sleep latency
+	timeBeginPeriod(1);
+
 	bool isBreakFlagEnabled = false;
 
 	EnterCriticalSection(&shouldCpuEmulateCriticalSection);
 
+	int64 frameStart = getTimeNanoseconds();
 	emu_virtualMachine* vm = (emu_virtualMachine*)lpParam;
 	emu_vmError error = emu_vmError_None;
 	while (error == emu_vmError_None || error == emu_vmError_Nop || error == emu_vmError_Break)
 	{
-
+		bool sleepTilFrameEnd = false;
 		BEGIN_CRITICAL_SECTION(shouldStepOverFlagLock);
 		BEGIN_CRITICAL_SECTION(cpuThreadBreakFlagLock);
 
@@ -77,10 +125,38 @@ static DWORD emulatorCpuThread(LPVOID lpParam)
 			{
 				cpuThreadBreakFlag = true;
 			}
+
+			if (error == emu_vmError_Vblank)
+			{
+				sleepTilFrameEnd = true;
+			}
 		}
 
 		END_CRITICAL_SECTION(cpuThreadBreakFlagLock);
 		END_CRITICAL_SECTION(shouldStepOverFlagLock);
+
+		if (sleepTilFrameEnd)
+		{
+			int64 timeNow = getTimeNanoseconds();
+			int64 remainingFrameTime = (frameStart + emu_vm_getFrameTimeNs()) - timeNow;
+			if (remainingFrameTime < emu_vm_getFrameTimeNs())
+			{
+				preciseSleepFor(remainingFrameTime);
+			}
+			else
+			{
+				if (!isBreakFlagEnabled)
+				{
+					g_logger_warning("Over shot frame time while not in debug mode.");
+				}
+
+				frameStart = emu_vm_getFrameTimeNs();
+			}
+			// Set frame start to exactly the start of the last frame plus the frame time
+			// This will hopefully keep us on track even if we sleep for an imprecise amount of time
+			frameStart += emu_vm_getFrameTimeNs();
+			error = emu_vmError_None;
+		}
 
 		// If the break flag is enabled, we can sleep for 100ms every loop just to make sure we don't spin tons of cycles waiting for it to change
 		if (isBreakFlagEnabled || !shouldCpuEmulate)
@@ -99,6 +175,7 @@ static DWORD emulatorCpuThread(LPVOID lpParam)
 
 	LeaveCriticalSection(&shouldCpuEmulateCriticalSection);
 
+	timeEndPeriod(1);
 	return 0;
 }
 
@@ -191,24 +268,55 @@ void emu_app_loadProgram(emu_app* app)
 {
 	if (app->program)
 	{
-		emu_assembler_free(app->program);
+		emu_NesBinaryFile_free(app->program);
 		g_memory_free(app->program);
 		app->program = NULL;
 	}
 
-	emu_assembler_program program = emu_assembler_assembleAndLinkProgram(&app->vm->mmap, app->data.sourceFiles, UINT16_MAX);
+	// We'll assume max cartridge space, and then adjust accordingly once we have a completed program
+	// that gives us a header telling what mapper it's expecting
+	size_t prgRomSize = KB(16) * 2;
+	size_t chrRomSize = KB(8);
+	// 1. We assemble the program
+	emu_assembler_program program = emu_assembler_assembleAndLinkProgram(&app->vm->mmap, app->data.sourceFiles, prgRomSize, chrRomSize);
 
-	emu_vmError err = emu_vm_loadProgram(app->vm, &program);
+	// 2. We generate a .nes binary file from our assembled program
+	emu_NesBinaryFile_Raw binary = emu_NesBinaryFile_generateBinary(program.header, program.prgRom, program.prgRomSize, program.chrRom, program.chrRomSize, NULL, 0);
+#define MAX_BIN_FILE_NAME_SIZE 1024
+	char binFileName[MAX_BIN_FILE_NAME_SIZE];
+	{
+		// TODO: Add project name instead of using project directory as name of project
+		size_t prjDirectoryLen = strlen(app->data.projectDirectory);
+		g_memory_copyMem(binFileName, app->data.projectDirectory, prjDirectoryLen);
+		binFileName[prjDirectoryLen] = '\0';
+		strncat(binFileName, ".nes", MAX_BIN_FILE_NAME_SIZE - prjDirectoryLen);
+		emu_file_write(binFileName, binary.bin, binary.binSize);
+	}
+#undef MAX_BIN_FILE_NAME_SIZE
+
+	// 3. Then we'll load that binary file into a structured data source
+	emu_file file;
+	emu_file_read(binFileName, &file);
+	emu_NesBinaryFile nesProgram = emu_NesBinaryFile_parse(&file);
+	emu_file_free(&file);
+
+	// 4. Finally, we'll load that program as we would if the user just opened a binary
+	emu_vmError err = emu_vm_loadProgram(app->vm, &nesProgram);
 	if (err != emu_vmError_None)
 	{
 		emu_ConsoleOutput_error("VM is not valid. Cannot debug.");
 		return;
 	}
 
+	// 5. Free all resources used to generate the nes program
+	emu_assembler_free(&program);
+	emu_NesBinaryFile_freeRaw(&binary);
+
 	emu_vm_resetMachine(app->vm);
 
-	emu_assembler_program* res = g_memory_allocate(sizeof(emu_assembler_program));
-	g_memory_copyMem(res, &program, sizeof(emu_assembler_program));
+	emu_NesBinaryFile* res = g_memory_allocate(sizeof(emu_NesBinaryFile));
+	g_memory_zeroMem(res, sizeof(emu_NesBinaryFile));
+	g_memory_copyMem(res, &nesProgram, sizeof(emu_NesBinaryFile));
 	app->program = res;
 	app->isDebugging = true;
 
@@ -363,7 +471,7 @@ void emu_app_free(emu_app* app)
 
 		if (app->program)
 		{
-			emu_assembler_free(app->program);
+			emu_NesBinaryFile_free(app->program);
 			g_memory_free(app->program);
 		}
 

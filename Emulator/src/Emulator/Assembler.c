@@ -29,6 +29,11 @@ case emu_Keyword_##type:\
 emu_emitOpcode(assembler, emu_vmInstruction_##type##_ZP);\
 break
 
+#define EMIT_ZERO_PAGE_X_OPCODE(type) \
+case emu_Keyword_##type:\
+emu_emitOpcode(assembler, emu_vmInstruction_##type##_ZPX);\
+break
+
 #define EMIT_RELATIVE_OPCODE(type) \
 case emu_Keyword_##type:\
 emu_emitOpcode(assembler, emu_vmInstruction_##type##_REL);\
@@ -223,6 +228,7 @@ static emu_StatementError emu_handleEndProc(emu_Assembler* assembler);
 static void emu_emitImplicitOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitImmediateOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* token);
+static void emu_emitZeroPageXOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitRelativeOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitAbsoluteOpcode(emu_Assembler* assembler, emu_Token const* token);
 static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* token);
@@ -251,26 +257,35 @@ static emu_TokenType peek(emu_Assembler* assembler);
 static emu_TokenType peekMulti(emu_Assembler* assembler, size_t offset);
 
 // Public Functions
-emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* const mmap, const emu_appData_SourceFile* sourceFiles, size_t programSize)
+emu_assembler_program emu_assembler_assembleAndLinkProgram(
+	emu_MemoryMap const* const mmap,
+	const emu_appData_SourceFile* sourceFiles,
+	size_t prgRomSize,
+	size_t chrRomSize
+)
 {
 	emu_Assembler assembler = {
-		.program = {.data = g_memory_allocate(programSize), .dataSize = programSize },
+		.program = {
+			.prgRom = g_memory_allocate(prgRomSize),
+			.prgRomSize = prgRomSize,
+			.chrRom = g_memory_allocate(chrRomSize),
+			.chrRomSize = chrRomSize,
+		},
 		.writeIndex = NULL,
 		.writeIndexStart = NULL,
 		.writeIndexSize = 0,
 		.mmap = mmap,
 	};
 
-	// Initialize to BRK instructions
-	for (size_t i = 0; i < programSize; i++)
-	{
-		assembler.program.data[i] = emu_vmInstruction_BRK;
-	}
+	// Initialize ROM to 0's
+	g_memory_zeroMem(assembler.program.prgRom, assembler.program.prgRomSize);
+	g_memory_zeroMem(assembler.program.chrRom, assembler.program.chrRomSize);
+	g_memory_zeroMem(assembler.program.header, EMU_BIN_HEADER_SIZE);
 
-	// Start off with writing to Code segment
-	assembler.writeIndex = assembler.program.data;
+	// Start off with writing to PRG ROM
+	assembler.writeIndex = assembler.program.prgRom;
 	assembler.writeIndexStart = assembler.writeIndex;
-	assembler.writeIndexSize = programSize;
+	assembler.writeIndexSize = assembler.program.prgRomSize;
 
 	emu_ProgramData* assembledPrograms = NULL;
 	for (int i = 0; i < stbds_arrlen(sourceFiles); i++)
@@ -284,6 +299,7 @@ emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* 
 	if (linkerResult != emu_LinkerError_None)
 	{
 		// TODO: Do something about this...
+		g_logger_error("Error linking program: %d", linkerResult);
 	}
 
 	// Free the segment maps
@@ -300,21 +316,7 @@ emu_assembler_program emu_assembler_assembleAndLinkProgram(emu_MemoryMap const* 
 	}
 	stbds_arrfree(assembledPrograms);
 
-	size_t romvSize = emu_mmap_getSize(assembler.mmap->as.nes.romv);
-	size_t headerSize = emu_mmap_getSize(assembler.mmap->as.nes.header);
-	size_t romSize = emu_mmap_getSize(assembler.mmap->as.nes.rom);
-
-	return (emu_assembler_program)
-	{
-		.data = assembler.program.data,
-			.dataSize = headerSize + romvSize + romSize,
-			.header = assembler.program.data,
-			.headerSize = headerSize,
-			.rom = assembler.program.data + headerSize,
-			.romSize = romSize,
-			.romv = assembler.program.data + headerSize + romSize,
-			.romvSize = romvSize,
-	};
+	return assembler.program;
 }
 
 void emu_assembler_free(emu_assembler_program* program)
@@ -324,10 +326,17 @@ void emu_assembler_free(emu_assembler_program* program)
 		return;
 	}
 
-	if (program->data)
+	if (program->prgRom)
 	{
-		g_memory_free(program->data);
+		g_memory_free(program->prgRom);
 	}
+
+	if (program->chrRom)
+	{
+		g_memory_free(program->chrRom);
+	}
+
+	g_memory_zeroMem(program, sizeof(emu_assembler_program));
 }
 
 // Internal definitions
@@ -393,9 +402,10 @@ static void emu_patchProgram(emu_Assembler* assembler, emu_ProgramData* program,
 
 				if (patch->type == emu_PatchType_RelativeJump)
 				{
-					int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress);
+					// Relative jumps only require 8 bits
+					int16 relativeOffset = (int16)((int32)labelAddress - (int32)patch->romAddress - 1);
+					g_logger_assert(relativeOffset >= INT8_MIN && relativeOffset <= INT8_MAX, "Invalid relative jump.");
 					patch->writePtr[0] = (uint8)(relativeOffset & 0xFF);
-					patch->writePtr[1] = (uint8)(relativeOffset >> 8);
 				}
 				else if (patch->type == emu_PatchType_GlobalAddress)
 				{
@@ -591,9 +601,11 @@ static emu_StatementError assembleNextStatement(emu_Assembler* assembler)
 	// See if one of our breakpoints lands on this token, and if it does, insert a break in the bytecode
 	for (int i = 0; i < stbds_arrlen(assembler->currentProgram->breakpoints); i++)
 	{
-		if (assembler->currentProgram->breakpoints[i] == token->line)
+		static int64 lastLineSet = -1;
+		if (assembler->currentProgram->breakpoints[i] == token->line && lastLineSet != (int64)token->line)
 		{
 			emu_emitByte(assembler, emu_vmInstruction_BRK);
+			lastLineSet = (int64)token->line;
 		}
 	}
 
@@ -657,7 +669,7 @@ static emu_StatementError parseAnonymousLabel(emu_Assembler* assembler, emu_Toke
 	uint16 prgAddress = (uint16)(assembler->writeIndex - assembler->writeIndexStart);
 	uint16 labelIndex = (uint16)(stbds_shlen(assembler->currentProgram->labels));
 	stbds_shput(assembler->currentProgram->labels, label, ((emu_LabelData){
-		.address = prgAddress + assembler->mmap->as.nes.rom.start,
+		.address = prgAddress + assembler->mmap->rom.start,
 			.index = labelIndex
 	}));
 
@@ -707,8 +719,16 @@ static emu_StatementError assembleInstruction(emu_Assembler* assembler, emu_Toke
 	{
 		if (emu_expectZeroPageCommand(assembler, token))
 		{
-			emu_emitZeroPageOpcode(assembler, token);
-			emu_emitByte(assembler, argList->arg0.as.byte);
+			if (argList->numArgs == 1)
+			{
+				emu_emitZeroPageOpcode(assembler, token);
+				emu_emitByte(assembler, argList->arg0.as.byte);
+			}
+			else if (argList->arg0.type == emu_ArgumentType_Byte && argList->numArgs == 2 && argList->arg1.type == emu_ArgumentType_X)
+			{
+				emu_emitZeroPageXOpcode(assembler, token);
+				emu_emitByte(assembler, argList->arg0.as.byte);
+			}
 		}
 		else
 		{
@@ -1021,58 +1041,47 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 	if (strcmp("\"HEADER\"", segmentNameStr) == 0)
 	{
 		// Set our write index to header segment
-		emu_AddressRange headerRange = assembler->mmap->as.nes.header;
-		uint16 headerOffset = headerRange.start;
-		g_logger_assert(headerOffset + emu_mmap_getSize(headerRange) <= assembler->program.dataSize, "Overflow");
 		emu_setWriteIndex(
 			assembler,
 			segmentNameStr,
-			assembler->program.data + headerOffset,
-			assembler->program.data + headerOffset,
-			emu_mmap_getSize(headerRange)
+			assembler->program.header,
+			assembler->program.header,
+			EMU_BIN_HEADER_SIZE
 		);
 	}
 	else if (strcmp("\"VECTORS\"", segmentNameStr) == 0)
 	{
 		// Set our write index to vector segment
-		// Vector segment starts after Code + Header segments
-		emu_AddressRange headerRange = assembler->mmap->as.nes.header;
-		emu_AddressRange romRange = assembler->mmap->as.nes.rom;
-		emu_AddressRange vectorRange = assembler->mmap->as.nes.romv;
-		uint16 vectorOffset = headerRange.start + (uint16)(emu_mmap_getSize(headerRange) + emu_mmap_getSize(romRange));
-		g_logger_assert(vectorOffset + emu_mmap_getSize(vectorRange) <= assembler->program.dataSize, "Overflow");
+		// Vector segment starts at the end of our PRG ROM - 6 bytes
+		size_t vectorOffset = assembler->program.prgRomSize - 6;
 		emu_setWriteIndex(
 			assembler,
 			segmentNameStr,
-			assembler->program.data + vectorOffset,
-			assembler->program.data + vectorOffset,
-			emu_mmap_getSize(vectorRange)
+			assembler->program.prgRom,
+			assembler->program.prgRom + vectorOffset,
+			assembler->program.prgRomSize
 		);
 	}
 	else if (strcmp("\"CODE\"", segmentNameStr) == 0)
 	{
-		// Set our write index to code segment
-		// Code segment starts right after Header segment
-		emu_AddressRange headerRange = assembler->mmap->as.nes.header;
-		emu_AddressRange romRange = assembler->mmap->as.nes.rom;
-		uint16 romOffset = headerRange.start + (uint16)emu_mmap_getSize(headerRange);
+		// Set our write index to PRG ROM segment
 		emu_setWriteIndex(
 			assembler,
 			segmentNameStr,
-			assembler->program.data + romOffset,
-			assembler->program.data + romOffset,
-			emu_mmap_getSize(romRange)
+			assembler->program.prgRom,
+			assembler->program.prgRom,
+			assembler->program.prgRomSize
 		);
 	}
 	else if (strcmp("\"STARTUP\"", segmentNameStr) == 0)
 	{
 		g_logger_warning("TODO: Implement STARTUP section");
-		emu_setWriteIndex(assembler, segmentNameStr, assembler->program.data, assembler->program.data, 0);
+		//emu_setWriteIndex(assembler, segmentNameStr, assembler->program.data, assembler->program.data, 0);
 	}
 	else if (strcmp("\"CHARS\"", segmentNameStr) == 0)
 	{
 		g_logger_warning("TODO: Implement CHARS section");
-		emu_setWriteIndex(assembler, segmentNameStr, assembler->program.data, assembler->program.data, 0);
+		//emu_setWriteIndex(assembler, segmentNameStr, assembler->program.data, assembler->program.data, 0);
 	}
 	else
 	{
@@ -1257,6 +1266,16 @@ static void emu_emitZeroPageOpcode(emu_Assembler* assembler, emu_Token const* to
 	}
 }
 
+static void emu_emitZeroPageXOpcode(emu_Assembler* assembler, emu_Token const* token)
+{
+	switch (token->data.keyword)
+	{
+		EMIT_ZERO_PAGE_X_OPCODE(STA);
+	default:
+		g_logger_error("Cannot emit zero page opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
+	}
+}
+
 static void emu_emitRelativeOpcode(emu_Assembler* assembler, emu_Token const* token)
 {
 	switch (token->data.keyword)
@@ -1326,7 +1345,9 @@ static void emu_emitAbsoluteXOpcode(emu_Assembler* assembler, emu_Token const* t
 		EMIT_ABSOLUTE_X_OPCODE(STA);
 		EMIT_ABSOLUTE_X_OPCODE(LDY);
 	default:
-		g_logger_error("Cannot emit absoluteX opcode for instruction: '%s'", emu_Keywords[token->data.keyword]);
+		g_logger_error("Illegal addressing mode. Cannot emit Absolute X addressing for instruction: '%s'", emu_Keywords[token->data.keyword]);
+		emu_logError(assembler, token, "Illegal addressing mode.Cannot emit Absolute X addressing for instruction: '%s'", emu_Keywords[token->data.keyword]);
+
 	}
 }
 
@@ -1407,7 +1428,7 @@ static emu_StatementError emu_addLabel(emu_Assembler* assembler, emu_Token const
 	}
 
 	stbds_shput(assembler->currentProgram->labels, label, ((emu_LabelData){
-		.address = prgAddress + assembler->mmap->as.nes.rom.start,
+		.address = prgAddress + assembler->mmap->rom.start,
 			.index = labelIndex,
 			.type = type,
 	}));
@@ -1430,14 +1451,22 @@ static emu_StatementError emu_recordPatchLocation(emu_Assembler* assembler, emu_
 			.label = label,
 		},
 		.writePtr = assembler->writeIndex,
-		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
+		.romAddress = prgAddress + assembler->mmap->rom.start,
 		.token = token,
 		.type = type,
 		.isCheap = isCheap,
 	};
 
 	// Increment 2 bytes to save room for the patched location
-	assembler->writeIndex += 2;
+	if (type == emu_PatchType_GlobalAddress)
+	{
+		assembler->writeIndex += 2;
+	}
+	// Otherwise, increment 1 byte to save room for patched location
+	else
+	{
+		assembler->writeIndex++;
+	}
 	stbds_arrput(assembler->currentProgram->patches, patch);
 
 	return emu_StatementError_None;
@@ -1459,7 +1488,7 @@ static emu_StatementError emu_recordAnonymousPatchLocation(emu_Assembler* assemb
 			.labelIndexToJumpTo = labelIndexToJumpTo,
 		},
 		.writePtr = assembler->writeIndex,
-		.romAddress = prgAddress + assembler->mmap->as.nes.rom.start,
+		.romAddress = prgAddress + assembler->mmap->rom.start,
 		.token = debugToken,
 		.type = emu_PatchType_AnonymousJump,
 	};
