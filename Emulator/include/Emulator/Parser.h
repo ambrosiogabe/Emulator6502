@@ -17,6 +17,7 @@ typedef enum emu_ControlCommand
 	emu_ControlCommand_EndProc,
 	emu_ControlCommand_Byte,
 	emu_ControlCommand_Addr, 
+	emu_ControlCommand_Incbin,
 	emu_ControlCommand_Length,
 	emu_ControlCommand_NULL
 } emu_ControlCommand;

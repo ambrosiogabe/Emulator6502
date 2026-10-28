@@ -222,6 +222,7 @@ static emu_StatementError emu_parseAndEmitByteList(emu_Assembler* assembler);
 static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler);
 static emu_StatementError emu_parseControlAddr(emu_Assembler* assembler);
 static emu_StatementError emu_parseControlExport(emu_Assembler* assembler);
+static emu_StatementError emu_parseControlIncbin(emu_Assembler* assembler);
 static emu_StatementError emu_parseControlImport(emu_Assembler* assembler);
 static emu_StatementError emu_parseProc(emu_Assembler* assembler);
 static emu_StatementError emu_handleEndProc(emu_Assembler* assembler);
@@ -835,6 +836,8 @@ static emu_StatementError assembleControlCommand(emu_Assembler* assembler, emu_T
 		return emu_parseControlImport(assembler);
 	case emu_ControlCommand_Export:
 		return emu_parseControlExport(assembler);
+	case emu_ControlCommand_Incbin:
+		return emu_parseControlIncbin(assembler);
 	default:
 		g_logger_error("No support for control command: '%s'", emu_ControlCommands[token->data.controlCommand]);
 	}
@@ -1080,8 +1083,13 @@ static emu_StatementError emu_parseAndSetSegment(emu_Assembler* assembler)
 	}
 	else if (strcmp("\"CHARS\"", segmentNameStr) == 0)
 	{
-		g_logger_warning("TODO: Implement CHARS section");
-		//emu_setWriteIndex(assembler, segmentNameStr, assembler->program.data, assembler->program.data, 0);
+		emu_setWriteIndex(
+			assembler,
+			segmentNameStr,
+			assembler->program.chrRom,
+			assembler->program.chrRom,
+			assembler->program.chrRomSize
+		);
 	}
 	else
 	{
@@ -1124,6 +1132,37 @@ static emu_StatementError emu_parseControlExport(emu_Assembler* assembler)
 
 	char* label = g_strcpy_sized(assembler->currentProgram->tokenList->sourceFile->data + addrToken->start, addrToken->length);
 	stbds_shput(assembler->currentProgram->exportedLabels, label, 0);
+	return emu_StatementError_None;
+}
+
+static emu_StatementError emu_parseControlIncbin(emu_Assembler* assembler)
+{
+	emu_Token const* filepathToken = getNext(assembler);
+	if (filepathToken->type != emu_TokenType_String)
+	{
+		emu_logError(assembler, filepathToken, "Expected string after .incbin command. Instead got '%s'", emu_TokenTypes[filepathToken->type]);
+		return emu_StatementError_Invalid;
+	}
+
+	// Attempt to read file and paste binary results into the output
+	char* filepath = g_strcpy_sized(assembler->currentProgram->tokenList->sourceFile->data + filepathToken->start + 1, filepathToken->length - 2);
+	emu_file file;
+	if (emu_file_read(filepath, &file) != emu_fileResult_Success)
+	{
+		emu_logError(assembler, filepathToken, "Cannot open include file '%s': No such file or directory", filepath);
+		g_memory_free(filepath);
+		return emu_StatementError_Invalid;
+	}
+
+	// If file read succeeded, paste the binary into our output
+	for (size_t i = 0; i < file.data_size; i++)
+	{
+		emu_emitByte(assembler, file.data[i]);
+	}
+
+	emu_file_free(&file);
+	g_memory_free(filepath);
+
 	return emu_StatementError_None;
 }
 

@@ -696,6 +696,16 @@ void emu_vm_free(emu_virtualMachine* vm)
 	if (vm)
 	{
 		emu_mmap_free(&vm->mmap);
+
+		if (vm->cartridge.prgRom)
+		{
+			g_memory_free(vm->cartridge.prgRom);
+		}
+
+		if (vm->cartridge.chrRom)
+		{
+			g_memory_free(vm->cartridge.chrRom);
+		}
 	}
 
 	g_memory_zeroMem(vm, sizeof(emu_virtualMachine));
