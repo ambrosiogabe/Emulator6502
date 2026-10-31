@@ -240,6 +240,7 @@ static HighlightedCode* getAllCaptures(TSTree* syntaxTree, bool printCaptures, c
 		(num_literal) @constant.numeric\
 		(register) @constant.builtin\
 		(operator) @operator\
+        (string) @string\
 \
 		(local_label) @variable\
 		(global_label) @variable\

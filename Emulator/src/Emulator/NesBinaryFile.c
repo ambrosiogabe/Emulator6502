@@ -46,7 +46,7 @@ emu_NesBinaryFile emu_NesBinaryFile_parse(emu_file* file)
 	emu_NesBinaryFile res = { 0 };
 	uint8* current = binary;
 	size_t currentSize = 0;
-	if (currentSize + sizeof(res.header) < binarySize)
+	if (currentSize + sizeof(res.header) <= binarySize)
 	{
 		g_memory_copyMem(&res.header, current, sizeof(res.header));
 		currentSize += sizeof(res.header);
@@ -58,7 +58,7 @@ emu_NesBinaryFile emu_NesBinaryFile_parse(emu_file* file)
 		return res;
 	}
 
-	if (res.header.cartridgeTypeLo.trainerPatch && currentSize + 512 < binarySize)
+	if (res.header.cartridgeTypeLo.trainerPatch && currentSize + 512 <= binarySize)
 	{
 		res.binaryTrainer = g_memory_allocate(512);
 		g_memory_copyMem(res.binaryTrainer, current, 512);
@@ -72,7 +72,7 @@ emu_NesBinaryFile emu_NesBinaryFile_parse(emu_file* file)
 	}
 
 	size_t prgRomSize = res.header.numPrgRomPages * KB(16);
-	if (currentSize + prgRomSize < binarySize)
+	if (currentSize + prgRomSize <= binarySize)
 	{
 		res.prgRom = g_memory_allocate(prgRomSize);
 		g_memory_copyMem(res.prgRom, current, prgRomSize);
@@ -85,8 +85,8 @@ emu_NesBinaryFile emu_NesBinaryFile_parse(emu_file* file)
 		return res;
 	}
 
-	size_t chrRomSize = res.header.numChrRomPages * KB(1);
-	if (currentSize + chrRomSize < binarySize)
+	size_t chrRomSize = res.header.numChrRomPages * KB(8);
+	if (currentSize + chrRomSize <= binarySize)
 	{
 		res.chrRom = g_memory_allocate(chrRomSize);
 		g_memory_copyMem(res.chrRom, current, chrRomSize);
@@ -99,7 +99,7 @@ emu_NesBinaryFile emu_NesBinaryFile_parse(emu_file* file)
 		return res;
 	}
 
-	if (res.header.cartridgeTypeHi.pc10Game && currentSize + KB(8) < binarySize)
+	if (res.header.cartridgeTypeHi.pc10Game && currentSize + KB(8) <= binarySize)
 	{
 		res.playChoiceZ80Rom = g_memory_allocate(KB(8));
 		// TODO: Implement play choice ROM
@@ -113,7 +113,7 @@ emu_NesBinaryFile emu_NesBinaryFile_parse(emu_file* file)
 	}
 
 	// If we have 127 or 128 extra bytes left, this file has a title
-	if (currentSize + 128 < binarySize || currentSize + 127 < binarySize)
+	if (currentSize + 128 <= binarySize || currentSize + 127 <= binarySize)
 	{
 		size_t numBytes = currentSize + 128 < binarySize ? 128 : 127;
 		res.title = g_memory_allocate(numBytes);

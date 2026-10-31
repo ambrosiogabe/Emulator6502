@@ -629,6 +629,9 @@ emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_NesBinaryFile* progra
 	vm->cartridge.chrRom = g_memory_allocate(chrRomSize);
 	g_memory_copyMem(vm->cartridge.chrRom, program->chrRom, chrRomSize);
 
+	// After making sure CHR ROM is in Cartridge Chip, copy it to the PPU
+	emu_chip_ppuLoadPatternTables(vm, program->chrRom, chrRomSize);
+
 	return emu_vmError_None;
 }
 

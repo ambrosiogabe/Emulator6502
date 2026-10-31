@@ -123,11 +123,20 @@ typedef struct emu_Ppu
 	uint8 oamRam[256];
 } emu_Ppu;
 
+typedef struct emu_Tile
+{
+	// 8x8 grid of pixels. Each pixel is 0, 1, 2, 3 which selects a color from the palette
+	uint8 pixels[8][8];
+} emu_Tile;
+
 void emu_chip_setReadWrite(emu_virtualMachine* vm, emu_RW readWrite);
 void emu_chip_cycle(emu_virtualMachine* vm);
 
 void emu_chip_cpuWriteAddress(emu_virtualMachine* vm, uint16 address);
 void emu_chip_cpuWriteToDataBus(emu_virtualMachine* vm, uint8 data);
 uint8 emu_chip_cpuReadDataBus(emu_virtualMachine* vm);
+
+void emu_chip_ppuLoadPatternTables(emu_virtualMachine* vm, uint8* chrRom, size_t chrRomSize);
+emu_Tile emu_chip_ppuLoadTile(emu_virtualMachine* vm, uint8 tile);
 
 #endif

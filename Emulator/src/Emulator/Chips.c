@@ -183,6 +183,52 @@ uint8 emu_chip_cpuReadDataBus(emu_virtualMachine* vm)
 	return vm->cpuChip.readWritePins.dataBus;
 }
 
+void emu_chip_ppuLoadPatternTables(emu_virtualMachine* vm, uint8* chrRom, size_t chrRomSize)
+{
+	g_logger_assert(chrRomSize <= KB(8), "CHR ROM is too big to copy into PPU pattern tables.");
+	size_t patternTable0Size = chrRomSize > KB(4) ? KB(4) : chrRomSize;
+	g_memory_copyMem(vm->ppuChip.patternTable0, chrRom, patternTable0Size);
+	size_t patternTable1Size = chrRomSize > patternTable0Size ? chrRomSize - patternTable0Size : 0;
+	g_memory_copyMem(vm->ppuChip.patternTable1, chrRom + patternTable0Size, patternTable1Size);
+}
+
+emu_Tile emu_chip_ppuLoadTile(emu_virtualMachine* vm, uint8 tile)
+{
+	uint8* patternTable = tile > 0xff ? vm->ppuChip.patternTable1 : vm->ppuChip.patternTable0;
+
+	size_t byteOffset = tile;
+	if (patternTable == vm->ppuChip.patternTable1)
+	{
+		byteOffset = tile - 0xff;
+	}
+	byteOffset *= 16;
+
+	if (byteOffset >= KB(4) - 16 * 8)
+	{
+		g_logger_error("Ran out of room %d", byteOffset);
+		return (emu_Tile) { 0 };
+	}
+
+	emu_Tile res = { 0 };
+	for (uint8 byte = 0; byte < 8; byte++)
+	{
+		uint8 loByte = patternTable[byte + byteOffset];
+		uint8 hiByte = patternTable[byte + byteOffset + 8];
+		for (int8 bit = 7; bit >= 0; bit--)
+		{
+			uint8 hiBit = (hiByte >> bit) & 0x1;
+			uint8 loBit = (loByte >> bit) & 0x1;
+			uint8 pixel = (hiBit << 1) | loBit;
+
+			uint8 y = byte;
+			uint8 x = 7 - bit;
+			res.pixels[y][x] = pixel;
+		}
+	}
+
+	return res;
+}
+
 // -------------------- Internal Functions --------------------
 static void handlePpuRead(emu_virtualMachine* vm)
 {

@@ -1,6 +1,7 @@
 #include "frontend/EmulatorDebug.h"
 #include "frontend/ImGuiLayer.h"
 #include "frontend/SyntaxHighlighter.h"
+#include "frontend/SdlWrapper.h"
 #include "Emulator/App.h"
 #include "Emulator/VirtualMachine.h"
 #include "Emulator/MemoryMap.h"
@@ -25,6 +26,10 @@ static uint32 mmapByteIndex = 0;
 static int addressToSeek = 0;
 static bool shouldSeekAddress = false;
 
+SDL_GPUTexture* gpu_texture;
+static int surfaceWidth = 16 * 8;
+static int surfaceHeight = 16 * 8;
+
 void emu_EmulatorDebug_tick(emu_app* app)
 {
 	if (ImGui_Begin("Debug", NULL, 0))
@@ -42,6 +47,119 @@ void emu_EmulatorDebug_beginDebugging(emu_app* app)
 	mmapNumRows = calculateNumRows();
 	shouldSeekAddress = true;
 	addressToSeek = app->vm->programCounter;
+
+	SDL_Surface* surface = SDL_CreateSurface(surfaceWidth, surfaceHeight, SDL_PIXELFORMAT_ABGR8888);
+	uint32* globalPixels = surface->pixels;
+	// Render tiles to our surface to display in ImGui
+	for (int tileIndex = 0; tileIndex <= 0xFF; tileIndex++)
+	{
+		emu_Tile tile = emu_chip_ppuLoadTile(vm, (uint8)tileIndex);
+		uint8 tileY = (uint8)(tileIndex / 16);
+		uint8 tileX = (uint8)(tileIndex % 16);
+
+		for (uint8 x = 0; x < 8; x++)
+		{
+			for (uint8 y = 0; y < 8; y++)
+			{
+				uint8 pixel = tile.pixels[y][x];
+				// Transparent = 0
+				uint8 r = 0;
+				uint8 g = 156;
+				uint8 b = 218;
+				uint8 a = 255;
+
+				// Red = 1
+				if (pixel == 1)
+				{
+					r = 235;
+					g = 64;
+					b = 52;
+					a = 255;
+				}
+				// Skin Tone = 2
+				else if (pixel == 2)
+				{
+					r = 254;
+					g = 209;
+					b = 176;
+					a = 255;
+				}
+				// Brown = 3
+				else if (pixel == 3)
+				{
+					r = 137;
+					g = 76;
+					b = 47;
+					a = 255;
+				}
+				// Pink = NULL
+				else if (pixel != 0)
+				{
+					r = 255;
+					g = 46;
+					b = 168;
+					a = 255;
+				}
+
+				globalPixels[((tileY * 8 + y) * surfaceWidth) + (tileX * 8) + x] = (a << 24) | (b << 16) | (g << 8) | r;
+			}
+		}
+	}
+
+	// 1. Create GPU texture
+	SDL_GPUTextureCreateInfo texture_info = { 0 };
+	texture_info.type = SDL_GPU_TEXTURETYPE_2D;
+	texture_info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
+	texture_info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
+	texture_info.width = surfaceWidth;
+	texture_info.height = surfaceHeight;
+	texture_info.layer_count_or_depth = 1;
+	texture_info.num_levels = 1;
+	texture_info.sample_count = SDL_GPU_SAMPLECOUNT_1;
+
+	gpu_texture = SDL_CreateGPUTexture(app->sdl->gpuDevice, &texture_info);
+
+	// Create transfer buffer
+	// FIXME: A real engine would likely keep one around, see what the SDL_GPU backend is doing.
+	SDL_GPUTransferBufferCreateInfo transferbuffer_info = { 0 };
+	transferbuffer_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
+	transferbuffer_info.size = surfaceWidth * surfaceHeight * 4;
+	SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(app->sdl->gpuDevice, &transferbuffer_info);
+	g_logger_assert(transferBuffer != NULL, "transfer buffer is null");
+
+	// Copy to transfer buffer
+	uint32_t upload_pitch = surfaceWidth * sizeof(uint32);
+	uint32 source_pitch = surfaceWidth;
+	void* texture_ptr = SDL_MapGPUTransferBuffer(app->sdl->gpuDevice, transferBuffer, true);
+	for (int y = 0; y < surfaceHeight; y++)
+		memcpy((void*)((uintptr_t)texture_ptr + y * upload_pitch), globalPixels + y * source_pitch, upload_pitch);
+	SDL_UnmapGPUTransferBuffer(app->sdl->gpuDevice, transferBuffer);
+
+	// 4. Record and Submit the GPU Copy Command
+	SDL_GPUTextureTransferInfo transfer_info = { 0 };
+	transfer_info.offset = 0;
+	transfer_info.transfer_buffer = transferBuffer;
+
+	SDL_GPUTextureRegion texture_region = { 0 };
+	texture_region.texture = gpu_texture;
+	texture_region.x = (Uint32)0;
+	texture_region.y = (Uint32)0;
+	texture_region.w = (Uint32)surfaceWidth;
+	texture_region.h = (Uint32)surfaceHeight;
+	texture_region.d = 1;
+
+	// Upload
+	SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(app->sdl->gpuDevice);
+	SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(cmd);
+	SDL_UploadToGPUTexture(copy_pass, &transfer_info, &texture_region, false);
+	SDL_EndGPUCopyPass(copy_pass);
+	SDL_SubmitGPUCommandBuffer(cmd);
+
+	// 5. Clean up temporary host/staging assets
+	// Release the staging buffer (safe to call immediately; execution happens safely via internal lifecycle reference counting)
+	SDL_ReleaseGPUTransferBuffer(app->sdl->gpuDevice, transferBuffer);
+	SDL_DestroySurface(surface);
+	surface = NULL;
 }
 
 void emu_EmulatorDebug_endDebugging()
@@ -334,7 +452,7 @@ static void hexMemoryViewer(emu_app* app)
 								c = '.';
 							}
 
-							ImVec4 color = useDarkColor 
+							ImVec4 color = useDarkColor
 								? commentColor
 								: theme->defaultColor;
 							ImGui_TextColored(color, "%c", c);
@@ -462,4 +580,23 @@ static void hexMemoryViewer(emu_app* app)
 
 	ImGui_Text("SP: 0x%02X", vm->stackPointer);
 	ImGui_SetItemTooltip("Stack pointer. The stack points to 0x1ff - SP.");
+
+	// Section to show the PPU data
+	if (ImGui_BeginChild("PPU", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0))
+	{
+		ImDrawList* draw_list = ImGui_GetWindowDrawList();
+		ImVec2 p_min = ImGui_GetCursorScreenPos();
+		float scale = 10.0f;
+		ImVec2 p_max = {
+			.x = p_min.x + (float)surfaceWidth * scale,
+			.y = p_min.y + (float)surfaceHeight * scale
+		};
+
+		ImGui_Dummy((ImVec2){ .x = (float)surfaceWidth * scale, .y = (float)surfaceHeight * scale });
+
+		ImDrawList_AddCallback(draw_list, ImGui_GetPlatformIO()->DrawCallback_SetSamplerNearest);
+		ImDrawList_AddImage(draw_list, (ImTextureRef) { ._TexData = NULL, ._TexID = (ImTextureID)(intptr_t)gpu_texture }, p_min, p_max);
+
+		ImGui_EndChild();
+	}
 }
