@@ -18,22 +18,25 @@ emu_sdl_wrapper* emu_frontend_initAndCreateWindow()
 		return NULL;
 	}
 
-	if (!SDL_CreateWindowAndRenderer(
-		"6502 Emulator",
-		1920,
-		1080,
-		SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY,
-		&wrapper->window,
-		&wrapper->renderer))
+	wrapper->window = SDL_CreateWindow("6502 Emulator", 1920, 1080, SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIDDEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+	if (!wrapper->window)
 	{
-		g_logger_error("Couldn't create window/renderer: %s", SDL_GetError());
+		g_logger_error("Couldn't create window: %s", SDL_GetError());
 		g_memory_free(wrapper);
 		return NULL;
 	}
 
-	if (!SDL_SetRenderVSync(wrapper->renderer, 1))
+	wrapper->gpuDevice = SDL_CreateGPUDevice(SDL_GPU_SHADERFORMAT_SPIRV | SDL_GPU_SHADERFORMAT_DXIL, true, NULL);
+	if (!SDL_ClaimWindowForGPUDevice(wrapper->gpuDevice, wrapper->window))
 	{
-		g_logger_error("SDL_SetRenderVSync failed: %s", SDL_GetError());
+		g_logger_info("Failed to claim window: %s", SDL_GetError());
+		g_memory_free(wrapper);
+		return NULL;
+	}
+
+	if (!SDL_SetGPUSwapchainParameters(wrapper->gpuDevice, wrapper->window, SDL_GPU_SWAPCHAINCOMPOSITION_SDR, SDL_GPU_PRESENTMODE_VSYNC))
+	{
+		g_logger_error("SDL_SetGPUSwapchainParameters failed: %s", SDL_GetError());
 		g_memory_free(wrapper);
 		return NULL;
 	}

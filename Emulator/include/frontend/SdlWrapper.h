@@ -6,6 +6,7 @@ typedef struct emu_sdl_wrapper
 {
 	SDL_Window* window;
 	SDL_Renderer* renderer;
+	SDL_GPUDevice* gpuDevice;
 } emu_sdl_wrapper;
 
 emu_sdl_wrapper* emu_frontend_initAndCreateWindow();

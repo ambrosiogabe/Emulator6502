@@ -15,7 +15,7 @@
 
 #include <dcimgui.h>
 #include <backends/dcimgui_impl_sdl3.h>
-#include <backends/dcimgui_impl_sdlrenderer3.h>
+#include <backends/dcimgui_impl_sdlgpu3.h>
 #include <dcimgui_internal.h>
 
 #include <float.h>
@@ -52,8 +52,14 @@ ImGuiContext* emu_cimgui_init(emu_app* app, emu_sdl_wrapper* sdl)
 	//io.ConfigDpiScaleViewports = true;    // [Experimental] Scale Dear ImGui and Platform Windows when Monitor DPI changes.
 
 	// Setup Platform/Renderer backends
-	cImGui_ImplSDL3_InitForSDLRenderer(sdl->window, sdl->renderer);
-	cImGui_ImplSDLRenderer3_Init(sdl->renderer);
+	cImGui_ImplSDL3_InitForSDLGPU(sdl->window);
+
+	ImGui_ImplSDLGPU3_InitInfo initInfo = {
+		.Device = sdl->gpuDevice,
+		.ColorTargetFormat = SDL_GetGPUSwapchainTextureFormat(sdl->gpuDevice, sdl->window),
+		.MSAASamples = SDL_GPU_SAMPLECOUNT_1
+	};
+	cImGui_ImplSDLGPU3_Init(&initInfo);
 
 	// Load Fonts
 	// - If fonts are not explicitly loaded, Dear ImGui will select an embedded font: either AddFontDefaultVector() or AddFontDefaultBitmap().
@@ -116,7 +122,7 @@ SDL_AppResult emu_cimgui_handleEvent(SDL_Event* event)
 void emu_cimgui_tickBegin(emu_app* app)
 {
 	// Start the Dear ImGui frame
-	cImGui_ImplSDLRenderer3_NewFrame();
+	cImGui_ImplSDLGPU3_NewFrame();
 	cImGui_ImplSDL3_NewFrame();
 	ImGui_NewFrame();
 
@@ -187,8 +193,38 @@ SDL_AppResult emu_cimgui_tickEnd(emu_sdl_wrapper* sdl)
 	SDL_SetRenderScale(sdl->renderer, io->DisplayFramebufferScale.x, io->DisplayFramebufferScale.y);
 	SDL_SetRenderDrawColorFloat(sdl->renderer, clear_color.x, clear_color.y, clear_color.z, clear_color.w);
 	SDL_RenderClear(sdl->renderer);
-	cImGui_ImplSDLRenderer3_RenderDrawData(ImGui_GetDrawData(), sdl->renderer);
-	SDL_RenderPresent(sdl->renderer);
+
+	// Prepare the frame and get draw data
+	ImDrawData* drawData = ImGui_GetDrawData();
+	const bool is_minimized = (drawData->DisplaySize.x <= 0.0f || drawData->DisplaySize.y <= 0.0f);
+
+	// Acquire command buffer and swapchain texture
+	SDL_GPUCommandBuffer* cmdBuffer = SDL_AcquireGPUCommandBuffer(sdl->gpuDevice);
+	SDL_GPUTexture* swapchainTexture;
+	SDL_WaitAndAcquireGPUSwapchainTexture(cmdBuffer, sdl->window, &swapchainTexture, NULL, NULL);
+
+	// Prepare and upload draw data
+	if (swapchainTexture != NULL && !is_minimized)
+	{
+		cImGui_ImplSDLGPU3_PrepareDrawData(drawData, cmdBuffer);
+
+		// Begin SDL gpu render pass
+		SDL_GPUColorTargetInfo color_target_info = {
+			.texture = swapchainTexture,
+			.clear_color = { 0.1f, 0.1f, 0.1f, 1.0f },
+			.load_op = SDL_GPU_LOADOP_LOAD, // Or CLEAR if you want to clear first
+			.store_op = SDL_GPU_STOREOP_STORE,
+		};
+
+		// Finally render draw data
+		SDL_GPURenderPass* renderPass = SDL_BeginGPURenderPass(cmdBuffer, &color_target_info, 1, NULL);
+
+		cImGui_ImplSDLGPU3_RenderDrawData(drawData, cmdBuffer, renderPass);
+
+		SDL_EndGPURenderPass(renderPass);
+	}
+
+	SDL_SubmitGPUCommandBuffer(cmdBuffer);
 
 	return SDL_APP_CONTINUE;
 }
@@ -202,7 +238,7 @@ void emu_cimgui_free(ImGuiContext* ctx)
 
 	// Cleanup
 	// [If using SDL_MAIN_USE_CALLBACKS: all code below would likely be your SDL_AppQuit() function]
-	cImGui_ImplSDLRenderer3_Shutdown();
+	cImGui_ImplSDLGPU3_Shutdown();
 	cImGui_ImplSDL3_Shutdown();
 	ImGui_DestroyContext(ctx);
 }

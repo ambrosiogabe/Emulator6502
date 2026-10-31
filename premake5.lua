@@ -97,8 +97,10 @@ project "imgui"
         "Emulator/vendor/dear_bindings/generated/dcimgui_internal.h",
         "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdl3.cpp",
         "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdl3.h",
-        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlrenderer3.cpp",
-        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlrenderer3.h",
+        --"Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlrenderer3.cpp",
+        --"Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlrenderer3.h",
+        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlgpu3.cpp",
+        "Emulator/vendor/dear_bindings/generated/backends/dcimgui_impl_sdlgpu3.h",
         "Emulator/vendor/imgui/imconfig.h",
         "Emulator/vendor/imgui/imgui.cpp",
         "Emulator/vendor/imgui/imgui.h",
@@ -112,8 +114,10 @@ project "imgui"
         "Emulator/vendor/imgui/imstb_truetype.h",
         "Emulator/vendor/imgui/backends/imgui_impl_sdl3.cpp",
         "Emulator/vendor/imgui/backends/imgui_impl_sdl3.h",
-        "Emulator/vendor/imgui/backends/imgui_impl_sdlrenderer3.cpp",
-        "Emulator/vendor/imgui/backends/imgui_impl_sdlrenderer3.h",
+        -- "Emulator/vendor/imgui/backends/imgui_impl_sdlrenderer3.cpp",
+        -- "Emulator/vendor/imgui/backends/imgui_impl_sdlrenderer3.h",
+        "Emulator/vendor/imgui/backends/imgui_impl_sdlgpu3.cpp",
+        "Emulator/vendor/imgui/backends/imgui_impl_sdlgpu3.h",
     }
 
     includedirs {
