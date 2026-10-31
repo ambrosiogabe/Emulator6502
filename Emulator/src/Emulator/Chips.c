@@ -203,7 +203,7 @@ emu_Tile emu_chip_ppuLoadTile(emu_virtualMachine* vm, uint8 tile)
 	}
 	byteOffset *= 16;
 
-	if (byteOffset >= KB(4) - 16 * 8)
+	if (byteOffset > KB(4) - 8)
 	{
 		g_logger_error("Ran out of room %d", byteOffset);
 		return (emu_Tile) { 0 };
