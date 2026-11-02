@@ -5,6 +5,9 @@
 
 typedef struct emu_virtualMachine emu_virtualMachine;
 
+// TODO: This is gross and just for debugging, get rid of it somehow
+typedef struct emu_app emu_app;
+
 typedef enum emu_Chips
 {
 	emu_Chips_Null = 0,
@@ -130,7 +133,7 @@ typedef struct emu_Tile
 } emu_Tile;
 
 void emu_chip_setReadWrite(emu_virtualMachine* vm, emu_RW readWrite);
-void emu_chip_cycle(emu_virtualMachine* vm);
+void emu_chip_cycle(emu_app* app, emu_virtualMachine* vm);
 
 void emu_chip_cpuWriteAddress(emu_virtualMachine* vm, uint16 address);
 void emu_chip_cpuWriteToDataBus(emu_virtualMachine* vm, uint8 data);
@@ -138,5 +141,6 @@ uint8 emu_chip_cpuReadDataBus(emu_virtualMachine* vm);
 
 void emu_chip_ppuLoadPatternTables(emu_virtualMachine* vm, uint8* chrRom, size_t chrRomSize);
 emu_Tile emu_chip_ppuLoadTile(emu_virtualMachine* vm, uint8 tile);
+uint32 emu_chip_ppuPaletteColorToU32(uint8 paletteColor);
 
 #endif

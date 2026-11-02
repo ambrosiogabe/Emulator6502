@@ -5,6 +5,9 @@
 
 typedef struct emu_NesBinaryFile emu_NesBinaryFile;
 
+// TODO: Gross, get rid of this if possible
+typedef struct emu_app emu_app;
+
 typedef enum emu_vmType
 {
 	emu_vmType_None = 0,
@@ -275,9 +278,9 @@ emu_virtualMachine emu_vm_sizedInit(size_t physicalMemorySize, emu_vmType vmType
 
 emu_vmError emu_vm_loadProgram(emu_virtualMachine* vm, emu_NesBinaryFile* program);
 
-emu_vmError emu_vm_resetMachine(emu_virtualMachine* vm);
+emu_vmError emu_vm_resetMachine(emu_app* app, emu_virtualMachine* vm);
 
-emu_vmError emu_vm_tick(emu_virtualMachine* vm);
+emu_vmError emu_vm_tick(emu_app* app, emu_virtualMachine* vm);
 
 void emu_vm_free(emu_virtualMachine* vm);
 

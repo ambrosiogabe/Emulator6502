@@ -1,10 +1,12 @@
 #include "Emulator/Chips.h"
 #include "Emulator/VirtualMachine.h"
+#include "Emulator/App.h"
 #include "frontend/ConsoleOutput.h"
+#include "frontend/EmulatorDebug.h"
 
 // -------------------- Internal Functions --------------------
 static void handlePpuRead(emu_virtualMachine* vm);
-static void handlePpuWrite(emu_virtualMachine* vm);
+static void handlePpuWrite(emu_app* app, emu_virtualMachine* vm);
 
 const char* emu_Chips_Strings[emu_Chips_Length] = {
 	"emu_Chips_Null",
@@ -57,7 +59,7 @@ void emu_chip_setReadWrite(emu_virtualMachine* vm, emu_RW readWrite)
 	}
 }
 
-void emu_chip_cycle(emu_virtualMachine* vm)
+void emu_chip_cycle(emu_app* app, emu_virtualMachine* vm)
 {
 	if (binaryToRw(vm->cpuChip.writePins.readWrite) == emu_RW_Read)
 	{
@@ -103,7 +105,7 @@ void emu_chip_cycle(emu_virtualMachine* vm)
 			emu_ConsoleOutput_error("Illegal. Cannot write to PRG ROM.");
 			break;
 		case emu_Chips_Ppu:
-			handlePpuWrite(vm);
+			handlePpuWrite(app, vm);
 			break;
 		case emu_Chips_Sram:
 			vm->staticRam.ram[vm->staticRam.pins.addressBus] = vm->staticRam.pins.dataBus;
@@ -229,6 +231,52 @@ emu_Tile emu_chip_ppuLoadTile(emu_virtualMachine* vm, uint8 tile)
 	return res;
 }
 
+uint32 emu_chip_ppuPaletteColorToU32(uint8 paletteColor)
+{
+	static int32 paletteColors[64] = {
+		(0xFF << 24) | (0x80 << 0) | (0x80 << 8) | (0x80 << 16), (0xFF << 24) | (0x00 << 0) | (0x3D << 8) | (0xA6 << 16), 
+		(0xFF << 24) | (0x00 << 0) | (0x12 << 8) | (0xB0 << 16), (0xFF << 24) | (0x44 << 0) | (0x00 << 8) | (0x96 << 16), 
+		(0xFF << 24) | (0xA1 << 0) | (0x00 << 8) | (0x5E << 16), (0xFF << 24) | (0xC7 << 0) | (0x00 << 8) | (0x28 << 16),
+		(0xFF << 24) | (0xBA << 0) | (0x06 << 8) | (0x00 << 16), (0xFF << 24) | (0x8C << 0) | (0x17 << 8) | (0x00 << 16),
+		(0xFF << 24) | (0x5C << 0) | (0x2F << 8) | (0x00 << 16), (0xFF << 24) | (0x10 << 0) | (0x45 << 8) | (0x00 << 16),
+		(0xFF << 24) | (0x05 << 0) | (0x4A << 8) | (0x00 << 16), (0xFF << 24) | (0x00 << 0) | (0x47 << 8) | (0x2E << 16),
+		(0xFF << 24) | (0x00 << 0) | (0x41 << 8) | (0x66 << 16), (0xFF << 24) | (0x00 << 0) | (0x00 << 8) | (0x00 << 16),
+		(0xFF << 24) | (0x05 << 0) | (0x05 << 8) | (0x05 << 16), (0xFF << 24) | (0x05 << 0) | (0x05 << 8) | (0x05 << 16),
+		(0xFF << 24) | (0xC7 << 0) | (0xC7 << 8) | (0xC7 << 16), (0xFF << 24) | (0x00 << 0) | (0x77 << 8) | (0xFF << 16),
+		(0xFF << 24) | (0x21 << 0) | (0x55 << 8) | (0xFF << 16), (0xFF << 24) | (0x82 << 0) | (0x37 << 8) | (0xFA << 16),
+		(0xFF << 24) | (0xEB << 0) | (0x2F << 8) | (0xB5 << 16), (0xFF << 24) | (0xFF << 0) | (0x29 << 8) | (0x50 << 16), 
+		(0xFF << 24) | (0xFF << 0) | (0x22 << 8) | (0x00 << 16), (0xFF << 24) | (0xD6 << 0) | (0x32 << 8) | (0x00 << 16),
+		(0xFF << 24) | (0xC4 << 0) | (0x62 << 8) | (0x00 << 16), (0xFF << 24) | (0x35 << 0) | (0x80 << 8) | (0x00 << 16),
+		(0xFF << 24) | (0x05 << 0) | (0x8F << 8) | (0x00 << 16), (0xFF << 24) | (0x00 << 0) | (0x8A << 8) | (0x55 << 16),
+		(0xFF << 24) | (0x00 << 0) | (0x99 << 8) | (0xCC << 16), (0xFF << 24) | (0x21 << 0) | (0x21 << 8) | (0x21 << 16),
+		(0xFF << 24) | (0x09 << 0) | (0x09 << 8) | (0x09 << 16), (0xFF << 24) | (0x09 << 0) | (0x09 << 8) | (0x09 << 16),
+		(0xFF << 24) | (0xFF << 0) | (0xFF << 8) | (0xFF << 16), (0xFF << 24) | (0x0F << 0) | (0xD7 << 8) | (0xFF << 16),
+		(0xFF << 24) | (0x69 << 0) | (0xA2 << 8) | (0xFF << 16), (0xFF << 24) | (0xD4 << 0) | (0x80 << 8) | (0xFF << 16), 
+		(0xFF << 24) | (0xFF << 0) | (0x45 << 8) | (0xF3 << 16), (0xFF << 24) | (0xFF << 0) | (0x61 << 8) | (0x8B << 16), 
+		(0xFF << 24) | (0xFF << 0) | (0x88 << 8) | (0x33 << 16), (0xFF << 24) | (0xFF << 0) | (0x9C << 8) | (0x12 << 16),
+		(0xFF << 24) | (0xFA << 0) | (0xBC << 8) | (0x20 << 16), (0xFF << 24) | (0x9F << 0) | (0xE3 << 8) | (0x0E << 16),
+		(0xFF << 24) | (0x2B << 0) | (0xF0 << 8) | (0x35 << 16), (0xFF << 24) | (0x0C << 0) | (0xF0 << 8) | (0xA4 << 16),
+		(0xFF << 24) | (0x05 << 0) | (0xFB << 8) | (0xFF << 16), (0xFF << 24) | (0x5E << 0) | (0x5E << 8) | (0x5E << 16), 
+		(0xFF << 24) | (0x0D << 0) | (0x0D << 8) | (0x0D << 16), (0xFF << 24) | (0x0D << 0) | (0x0D << 8) | (0x0D << 16), 
+		(0xFF << 24) | (0xFF << 0) | (0xFF << 8) | (0xFF << 16), (0xFF << 24) | (0xA6 << 0) | (0xFC << 8) | (0xFF << 16),
+		(0xFF << 24) | (0xB3 << 0) | (0xEC << 8) | (0xFF << 16), (0xFF << 24) | (0xDA << 0) | (0xAB << 8) | (0xEB << 16),
+		(0xFF << 24) | (0xFF << 0) | (0xA8 << 8) | (0xF9 << 16), (0xFF << 24) | (0xFF << 0) | (0xAB << 8) | (0xB3 << 16),
+		(0xFF << 24) | (0xFF << 0) | (0xD2 << 8) | (0xB0 << 16), (0xFF << 24) | (0xFF << 0) | (0xEF << 8) | (0xA6 << 16),
+		(0xFF << 24) | (0xFF << 0) | (0xF7 << 8) | (0x9C << 16), (0xFF << 24) | (0xD7 << 0) | (0xE8 << 8) | (0x95 << 16),
+		(0xFF << 24) | (0xA6 << 0) | (0xED << 8) | (0xAF << 16), (0xFF << 24) | (0xA2 << 0) | (0xF2 << 8) | (0xDA << 16),
+		(0xFF << 24) | (0x99 << 0) | (0xFF << 8) | (0xFC << 16), (0xFF << 24) | (0xDD << 0) | (0xDD << 8) | (0xDD << 16),
+		(0xFF << 24) | (0x11 << 0) | (0x11 << 8) | (0x11 << 16), (0xFF << 24) | (0x11 << 0) | (0x11 << 8) | (0x11 << 16)
+	};
+
+	if (paletteColor >= 64)
+	{
+		g_logger_error("Tried to access palette color out of range. No color: %0x4 exists", paletteColor);
+		return 0;
+	}
+
+	return (uint32)paletteColors[paletteColor];
+}
+
 // -------------------- Internal Functions --------------------
 static void handlePpuRead(emu_virtualMachine* vm)
 {
@@ -253,7 +301,7 @@ static void handlePpuRead(emu_virtualMachine* vm)
 	}
 }
 
-static void handlePpuWrite(emu_virtualMachine* vm)
+static void handlePpuWrite(emu_app* app, emu_virtualMachine* vm)
 {
 	uint16 address = vm->cpuChip.writePins.addressBus;
 
@@ -305,36 +353,38 @@ static void handlePpuWrite(emu_virtualMachine* vm)
 		uint8 data = vm->ppuChip.pins.dataBus;
 		if (emu_mmap_inRange(&vm->ppuMmap.backgroundAndSpritePalettes, ppuAddr))
 		{
-			vm->ppuChip.backgroundSpritePalettes[ppuAddr - vm->ppuMmap.backgroundAndSpritePalettes.start] = data;
+			vm->ppuChip.backgroundSpritePalettes[(ppuAddr - vm->ppuMmap.backgroundAndSpritePalettes.start) % 32] = data;
 		}
 		else if (emu_mmap_inRange(&vm->ppuMmap.nameAttrTable0, ppuAddr))
 		{
-			vm->ppuChip.nameAndAttrTable0[ppuAddr - vm->ppuMmap.nameAttrTable0.start] = data;
+			vm->ppuChip.nameAndAttrTable0[(ppuAddr - vm->ppuMmap.nameAttrTable0.start) % 1024] = data;
 		}
 		else if (emu_mmap_inRange(&vm->ppuMmap.nameAttrTable1, ppuAddr))
 		{
-			vm->ppuChip.nameAndAttrTable1[ppuAddr - vm->ppuMmap.nameAttrTable1.start] = data;
+			vm->ppuChip.nameAndAttrTable1[(ppuAddr - vm->ppuMmap.nameAttrTable1.start) % 1024] = data;
 		}
 		else if (emu_mmap_inRange(&vm->ppuMmap.nameAttrTable2, ppuAddr))
 		{
-			vm->ppuChip.nameAndAttrTable2[ppuAddr - vm->ppuMmap.nameAttrTable2.start] = data;
+			vm->ppuChip.nameAndAttrTable2[(ppuAddr - vm->ppuMmap.nameAttrTable2.start) % 1024] = data;
 		}
 		else if (emu_mmap_inRange(&vm->ppuMmap.nameAttrTable3, ppuAddr))
 		{
-			vm->ppuChip.nameAndAttrTable3[ppuAddr - vm->ppuMmap.nameAttrTable3.start] = data;
+			vm->ppuChip.nameAndAttrTable3[(ppuAddr - vm->ppuMmap.nameAttrTable3.start) % 1024] = data;
 		}
 		else if (emu_mmap_inRange(&vm->ppuMmap.nameAttrTableMirrors, ppuAddr))
 		{
-			vm->ppuChip.nameAndAttrTableMirror[ppuAddr - vm->ppuMmap.nameAttrTableMirrors.start] = data;
+			vm->ppuChip.nameAndAttrTableMirror[(ppuAddr - vm->ppuMmap.nameAttrTableMirrors.start) % 4096] = data;
 		}
 		else if (emu_mmap_inRange(&vm->ppuMmap.patternTable0, ppuAddr))
 		{
-			vm->ppuChip.patternTable0[ppuAddr - vm->ppuMmap.patternTable0.start] = data;
+			vm->ppuChip.patternTable0[(ppuAddr - vm->ppuMmap.patternTable0.start) % 4096] = data;
 		}
 		else if (emu_mmap_inRange(&vm->ppuMmap.patternTable1, ppuAddr))
 		{
-			vm->ppuChip.patternTable1[ppuAddr - vm->ppuMmap.patternTable1.start] = data;
+			vm->ppuChip.patternTable1[(ppuAddr - vm->ppuMmap.patternTable1.start) % 4096] = data;
 		}
+
+		emu_EmulatorDebug_generateDebugTextures(app, app->vm);
 
 		// TODO: This should increment by 1 if bit 2 of ppuctrl reg is + 0 and increment by 32 if it's 1
 		vm->ppuChip.vReg += 1;
@@ -355,12 +405,12 @@ static void handlePpuWrite(emu_virtualMachine* vm)
 			// First load CPU data to the data bus
 			vm->cpuChip.writePins.addressBus = (vm->cpuChip.oamDma << 8) | vm->cpuChip.oamAddr;
 			vm->cpuChip.writePins.readWrite = rwToBinary(emu_RW_Read);
-			emu_chip_cycle(vm);
+			emu_chip_cycle(app, vm);
 
 			// Then trigger an OAM write by writing to the OAM Write address
 			vm->cpuChip.writePins.addressBus = 0x2004;
 			vm->cpuChip.writePins.readWrite = rwToBinary(emu_RW_Write);
-			emu_chip_cycle(vm);
+			emu_chip_cycle(app, vm);
 		}
 	}
 }

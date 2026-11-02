@@ -5,6 +5,7 @@
 #include "Emulator/App.h"
 #include "Emulator/VirtualMachine.h"
 #include "Emulator/MemoryMap.h"
+#include "renderer/TextureUtils.h"
 
 #include <IconsFontAwesome7.h>
 #include <dcimgui.h>
@@ -16,8 +17,9 @@ static uint32 calculateNumRows();
 static uint16 getByteAddressFromRow(uint32 row);
 static uint32 getRowFromByteAddress(uint16 byteAddress);
 static void hexMemoryViewer(emu_app* app);
+static void ppuMemoryViewer(emu_app* app);
 
-static emu_virtualMachine* vm = NULL;
+static bool memoryViewerOpen = false;
 
 static emu_MemoryMap const* mmap = NULL;
 static uint32 mmapNumRows = 0;
@@ -26,30 +28,37 @@ static uint32 mmapByteIndex = 0;
 static int addressToSeek = 0;
 static bool shouldSeekAddress = false;
 
-SDL_GPUTexture* gpu_texture;
-static int surfaceWidth = 16 * 8;
-static int surfaceHeight = 16 * 8;
+emu_texutreUtils_Texture gpuTexture = { 0 };
 
 void emu_EmulatorDebug_tick(emu_app* app)
 {
-	if (ImGui_Begin("Debug", NULL, 0))
-	{
-		hexMemoryViewer(app);
-	}
-
+	ImGui_Begin("Debug", NULL, 0);
+	hexMemoryViewer(app);
 	ImGui_End();
+
+	if (memoryViewerOpen)
+	{
+		ImGui_Begin("PPU Memory Viewer", &memoryViewerOpen, ImGuiWindowFlags_AlwaysAutoResize);
+		ppuMemoryViewer(app);
+		ImGui_End();
+	}
 }
 
-void emu_EmulatorDebug_beginDebugging(emu_app* app)
+void emu_EmulatorDebug_generateDebugTextures(emu_app* app, emu_virtualMachine* vm)
 {
-	vm = app->vm;
-	mmap = &app->vm->mmap;
-	mmapNumRows = calculateNumRows();
-	shouldSeekAddress = true;
-	addressToSeek = app->vm->programCounter;
+	if (!gpuTexture.texture)
+	{
+		SDL_ReleaseGPUTexture(app->sdl->gpuDevice, gpuTexture.texture);
+	}
 
-	SDL_Surface* surface = SDL_CreateSurface(surfaceWidth, surfaceHeight, SDL_PIXELFORMAT_ABGR8888);
+	emu_textureUtils_opts options = {
+	.width = 16 * 8,
+	.height = 16 * 8,
+	};
+
+	SDL_Surface* surface = SDL_CreateSurface(options.width, options.height, SDL_PIXELFORMAT_ABGR8888);
 	uint32* globalPixels = surface->pixels;
+
 	// Render tiles to our surface to display in ImGui
 	for (int tileIndex = 0; tileIndex <= 0xFF; tileIndex++)
 	{
@@ -62,110 +71,30 @@ void emu_EmulatorDebug_beginDebugging(emu_app* app)
 			for (uint8 y = 0; y < 8; y++)
 			{
 				uint8 pixel = tile.pixels[y][x];
-				// Transparent = 0
-				uint8 r = 0;
-				uint8 g = 156;
-				uint8 b = 218;
-				uint8 a = 255;
 
-				// Red = 1
-				if (pixel == 1)
-				{
-					r = 235;
-					g = 64;
-					b = 52;
-					a = 255;
-				}
-				// Skin Tone = 2
-				else if (pixel == 2)
-				{
-					r = 254;
-					g = 209;
-					b = 176;
-					a = 255;
-				}
-				// Brown = 3
-				else if (pixel == 3)
-				{
-					r = 137;
-					g = 76;
-					b = 47;
-					a = 255;
-				}
-				// Pink = NULL
-				else if (pixel != 0)
-				{
-					r = 255;
-					g = 46;
-					b = 168;
-					a = 255;
-				}
-
-				globalPixels[((tileY * 8 + y) * surfaceWidth) + (tileX * 8) + x] = (a << 24) | (b << 16) | (g << 8) | r;
+				uint32 color = emu_chip_ppuPaletteColorToU32(vm->ppuChip.backgroundSpritePalettes[pixel + 16]);
+				globalPixels[((tileY * 8 + y) * options.width) + (tileX * 8) + x] = color;
 			}
 		}
 	}
 
-	// 1. Create GPU texture
-	SDL_GPUTextureCreateInfo texture_info = { 0 };
-	texture_info.type = SDL_GPU_TEXTURETYPE_2D;
-	texture_info.format = SDL_GPU_TEXTUREFORMAT_R8G8B8A8_UNORM;
-	texture_info.usage = SDL_GPU_TEXTUREUSAGE_SAMPLER;
-	texture_info.width = surfaceWidth;
-	texture_info.height = surfaceHeight;
-	texture_info.layer_count_or_depth = 1;
-	texture_info.num_levels = 1;
-	texture_info.sample_count = SDL_GPU_SAMPLECOUNT_1;
-
-	gpu_texture = SDL_CreateGPUTexture(app->sdl->gpuDevice, &texture_info);
-
-	// Create transfer buffer
-	// FIXME: A real engine would likely keep one around, see what the SDL_GPU backend is doing.
-	SDL_GPUTransferBufferCreateInfo transferbuffer_info = { 0 };
-	transferbuffer_info.usage = SDL_GPU_TRANSFERBUFFERUSAGE_UPLOAD;
-	transferbuffer_info.size = surfaceWidth * surfaceHeight * 4;
-	SDL_GPUTransferBuffer* transferBuffer = SDL_CreateGPUTransferBuffer(app->sdl->gpuDevice, &transferbuffer_info);
-	g_logger_assert(transferBuffer != NULL, "transfer buffer is null");
-
-	// Copy to transfer buffer
-	uint32_t upload_pitch = surfaceWidth * sizeof(uint32);
-	uint32 source_pitch = surfaceWidth;
-	void* texture_ptr = SDL_MapGPUTransferBuffer(app->sdl->gpuDevice, transferBuffer, true);
-	for (int y = 0; y < surfaceHeight; y++)
-		memcpy((void*)((uintptr_t)texture_ptr + y * upload_pitch), globalPixels + y * source_pitch, upload_pitch);
-	SDL_UnmapGPUTransferBuffer(app->sdl->gpuDevice, transferBuffer);
-
-	// 4. Record and Submit the GPU Copy Command
-	SDL_GPUTextureTransferInfo transfer_info = { 0 };
-	transfer_info.offset = 0;
-	transfer_info.transfer_buffer = transferBuffer;
-
-	SDL_GPUTextureRegion texture_region = { 0 };
-	texture_region.texture = gpu_texture;
-	texture_region.x = (Uint32)0;
-	texture_region.y = (Uint32)0;
-	texture_region.w = (Uint32)surfaceWidth;
-	texture_region.h = (Uint32)surfaceHeight;
-	texture_region.d = 1;
-
-	// Upload
-	SDL_GPUCommandBuffer* cmd = SDL_AcquireGPUCommandBuffer(app->sdl->gpuDevice);
-	SDL_GPUCopyPass* copy_pass = SDL_BeginGPUCopyPass(cmd);
-	SDL_UploadToGPUTexture(copy_pass, &transfer_info, &texture_region, false);
-	SDL_EndGPUCopyPass(copy_pass);
-	SDL_SubmitGPUCommandBuffer(cmd);
-
-	// 5. Clean up temporary host/staging assets
-	// Release the staging buffer (safe to call immediately; execution happens safely via internal lifecycle reference counting)
-	SDL_ReleaseGPUTransferBuffer(app->sdl->gpuDevice, transferBuffer);
+	options.pixels = surface->pixels;
+	gpuTexture = emu_textureUtils_createTexture(app, options);
 	SDL_DestroySurface(surface);
-	surface = NULL;
+}
+
+void emu_EmulatorDebug_beginDebugging(emu_app* app)
+{
+	mmap = &app->vm->mmap;
+	mmapNumRows = calculateNumRows();
+	shouldSeekAddress = true;
+	addressToSeek = app->vm->programCounter;
+	emu_EmulatorDebug_generateDebugTextures(app, app->vm);
 }
 
 void emu_EmulatorDebug_endDebugging()
 {
 	mmap = NULL;
-	vm = NULL;
 	mmapNumRows = 0;
 }
 
@@ -232,6 +161,8 @@ static void hexMemoryViewer(emu_app* app)
 		ImGui_Text("Open a program and press `Debug` to use this debugger.");
 		return;
 	}
+
+	emu_virtualMachine* vm = app->vm;
 
 	emu_cimgui_pushFont(CImGui_FontType_Mono);
 	ImFont* font = ImGui_GetFont();
@@ -519,52 +450,51 @@ static void hexMemoryViewer(emu_app* app)
 		app->isDebugging = false;
 	}
 
-	if (ImGui_BeginChild("Status Flags", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0))
-	{
-		ImGui_BeginDisabled(true);
+	ImGui_BeginChild("Status Flags", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0);
 
-		bool negativeStatus = emu_vm_getStatus(vm, emu_vmStatus_Negative);
-		ImGui_Checkbox("N", &negativeStatus);
-		ImGui_SetItemTooltip("Negative Status. Set when the accumulator is negative.");
-		ImGui_SameLine();
+	ImGui_BeginDisabled(true);
 
-		bool overflowStatus = emu_vm_getStatus(vm, emu_vmStatus_Overflow);
-		ImGui_Checkbox("V", &overflowStatus);
-		ImGui_SetItemTooltip("Overflow Status. Set on signed overflow for the accumulator.");
-		ImGui_SameLine();
+	bool negativeStatus = emu_vm_getStatus(vm, emu_vmStatus_Negative);
+	ImGui_Checkbox("N", &negativeStatus);
+	ImGui_SetItemTooltip("Negative Status. Set when the accumulator is negative.");
+	ImGui_SameLine();
 
-		bool oneStatus = emu_vm_getStatus(vm, emu_vmStatus_1);
-		ImGui_Checkbox("1", &oneStatus);
-		ImGui_SetItemTooltip("1 Status. Reserved for special use.");
-		ImGui_SameLine();
+	bool overflowStatus = emu_vm_getStatus(vm, emu_vmStatus_Overflow);
+	ImGui_Checkbox("V", &overflowStatus);
+	ImGui_SetItemTooltip("Overflow Status. Set on signed overflow for the accumulator.");
+	ImGui_SameLine();
 
-		bool bStatus = emu_vm_getStatus(vm, emu_vmStatus_B);
-		ImGui_Checkbox("B", &bStatus);
-		ImGui_SetItemTooltip("Break Status. Set when interrupt was caused by a BRK.");
+	bool oneStatus = emu_vm_getStatus(vm, emu_vmStatus_1);
+	ImGui_Checkbox("1", &oneStatus);
+	ImGui_SetItemTooltip("1 Status. Reserved for special use.");
+	ImGui_SameLine();
 
-		bool decimalStatus = emu_vm_getStatus(vm, emu_vmStatus_Decimal);
-		ImGui_Checkbox("D", &decimalStatus);
-		ImGui_SetItemTooltip("Decimal Status. Set when CPU is in BCD mode.");
-		ImGui_SameLine();
+	bool bStatus = emu_vm_getStatus(vm, emu_vmStatus_B);
+	ImGui_Checkbox("B", &bStatus);
+	ImGui_SetItemTooltip("Break Status. Set when interrupt was caused by a BRK.");
 
-		bool interruptStatus = emu_vm_getStatus(vm, emu_vmStatus_InterruptDisable);
-		ImGui_Checkbox("I", &interruptStatus);
-		ImGui_SetItemTooltip("IRQ Status. When set, no interrupts will occur (exceptions are IRQs forced by BRK and NMIs)");
-		ImGui_SameLine();
+	bool decimalStatus = emu_vm_getStatus(vm, emu_vmStatus_Decimal);
+	ImGui_Checkbox("D", &decimalStatus);
+	ImGui_SetItemTooltip("Decimal Status. Set when CPU is in BCD mode.");
+	ImGui_SameLine();
 
-		bool zeroStatus = emu_vm_getStatus(vm, emu_vmStatus_Zero);
-		ImGui_Checkbox("Z", &zeroStatus);
-		ImGui_SetItemTooltip("Zero Status. Set when all bits in accumulator are 0.");
-		ImGui_SameLine();
+	bool interruptStatus = emu_vm_getStatus(vm, emu_vmStatus_InterruptDisable);
+	ImGui_Checkbox("I", &interruptStatus);
+	ImGui_SetItemTooltip("IRQ Status. When set, no interrupts will occur (exceptions are IRQs forced by BRK and NMIs)");
+	ImGui_SameLine();
 
-		bool carryStatus = emu_vm_getStatus(vm, emu_vmStatus_Carry);
-		ImGui_Checkbox("C", &carryStatus);
-		ImGui_SetItemTooltip("Carry Status. Set on unsigned overflow for accumulator.");
+	bool zeroStatus = emu_vm_getStatus(vm, emu_vmStatus_Zero);
+	ImGui_Checkbox("Z", &zeroStatus);
+	ImGui_SetItemTooltip("Zero Status. Set when all bits in accumulator are 0.");
+	ImGui_SameLine();
 
-		ImGui_EndDisabled();
+	bool carryStatus = emu_vm_getStatus(vm, emu_vmStatus_Carry);
+	ImGui_Checkbox("C", &carryStatus);
+	ImGui_SetItemTooltip("Carry Status. Set on unsigned overflow for accumulator.");
 
-		ImGui_EndChild();
-	}
+	ImGui_EndDisabled();
+
+	ImGui_EndChild();
 
 	ImGui_Text("A: 0x%02X", vm->accumulatorReg);
 	ImGui_SetItemTooltip("Accumulator register. Used for storing results of mathematical/logical operations.");
@@ -582,21 +512,119 @@ static void hexMemoryViewer(emu_app* app)
 	ImGui_SetItemTooltip("Stack pointer. The stack points to 0x1ff - SP.");
 
 	// Section to show the PPU data
-	if (ImGui_BeginChild("PPU", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0))
+	if (ImGui_Button("View PPU Memory"))
 	{
+		memoryViewerOpen = true;
+	}
+}
+
+static void ppuMemoryViewer(emu_app* app)
+{
+	ImGui_Text("Pattern Tables:");
+	ImGui_BeginChild("Pattern Tables", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0);
+
+	if (ImGui_BeginTable("##DebugPatternTableViewer", 4, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY))
+	{
+		ImGui_TableNextRow();
+		ImGui_TableSetColumnIndex(0);
+
 		ImDrawList* draw_list = ImGui_GetWindowDrawList();
-		ImVec2 p_min = ImGui_GetCursorScreenPos();
-		float scale = 10.0f;
-		ImVec2 p_max = {
-			.x = p_min.x + (float)surfaceWidth * scale,
-			.y = p_min.y + (float)surfaceHeight * scale
+		float scale = 5.0f;
+		ImVec2 size = (ImVec2){
+			.x = (float)gpuTexture.width * scale,
+			.y = (float)gpuTexture.height * scale
 		};
 
-		ImGui_Dummy((ImVec2){ .x = (float)surfaceWidth * scale, .y = (float)surfaceHeight * scale });
+		ImVec2 p_min = ImGui_GetCursorScreenPos();
+		ImVec2 p_max = {
+			.x = p_min.x + size.x,
+			.y = p_min.y + size.y
+		};
+
+		ImGui_Dummy(size);
 
 		ImDrawList_AddCallback(draw_list, ImGui_GetPlatformIO()->DrawCallback_SetSamplerNearest);
-		ImDrawList_AddImage(draw_list, (ImTextureRef) { ._TexData = NULL, ._TexID = (ImTextureID)(intptr_t)gpu_texture }, p_min, p_max);
+		ImDrawList_AddImage(draw_list, (ImTextureRef) { ._TexData = NULL, ._TexID = (ImTextureID)(intptr_t)gpuTexture.texture }, p_min, p_max);
 
-		ImGui_EndChild();
+		ImGui_TableSetColumnIndex(1);
+
+		p_min = ImGui_GetCursorScreenPos();
+		p_max = (ImVec2){
+			.x = p_min.x + size.x,
+			.y = p_min.y + size.y
+		};
+
+		ImGui_Dummy(size);
+
+		ImDrawList_AddCallback(draw_list, ImGui_GetPlatformIO()->DrawCallback_SetSamplerNearest);
+		ImDrawList_AddImage(draw_list, (ImTextureRef) { ._TexData = NULL, ._TexID = (ImTextureID)(intptr_t)gpuTexture.texture }, p_min, p_max);
+
+		ImGui_TableNextRow();
+		ImGui_TableSetColumnIndex(0);
+
+		// TODO: Make sure to update tile based on what mouse is hovering over
+		ImGui_Text("Tile: ");
+
+		ImGui_TableSetColumnIndex(1);
+
+		// TODO: Make sure to update tile based on what mouse is hovering over
+		ImGui_Text("Tile: ");
+
+		ImGui_EndTable();
 	}
+
+	ImGui_EndChild();
+
+	ImGui_Text("Palettes:");
+	ImGui_BeginChild("Palettes", (ImVec2) { 0 }, ImGuiChildFlags_Borders | ImGuiChildFlags_AutoResizeX | ImGuiChildFlags_AutoResizeY, 0);
+
+	if (ImGui_BeginTable("##DebugPaletteViewer", 4, ImGuiTableFlags_BordersOuter | ImGuiTableFlags_ScrollX | ImGuiTableFlags_ScrollY | ImGuiTableFlags_NoPadInnerX | ImGuiTableFlags_NoPadOuterX))
+	{
+		ImDrawList* drawList = ImGui_GetWindowDrawList();
+		ImGui_PushStyleVarImVec2(ImGuiStyleVar_ItemSpacing, (ImVec2) { 0.0f, 0.0f });
+		ImGui_PushStyleVarImVec2(ImGuiStyleVar_FramePadding, (ImVec2) { 0.0f, 0.0f });
+
+		for (int i = 1; i >= 0; i--)
+		{
+			ImGui_TableNextRow();
+			for (int j = 0; j < 16; j++)
+			{
+				if (j % 4 == 0)
+				{
+					ImGui_TableSetColumnIndex(j / 4);
+					ImGui_Dummy((ImVec2) { 10.0f, 0.0f });
+					ImGui_SameLine();
+				}
+
+				uint8 paletteColor = app->vm->ppuChip.backgroundSpritePalettes[i * 16 + j];
+				uint32 color = emu_chip_ppuPaletteColorToU32(paletteColor);
+
+				// 1. Define the top-left coordinate and square size
+				ImVec2 pos = ImGui_GetCursorScreenPos();
+				float size = 50.0f; // 50x50 square
+
+				// 2. Set an invisible interaction bounding box in the layout
+				ImGui_Dummy((ImVec2) { .x = size, .y = size });
+
+				// 3. Check if that specific item region is hovered
+				bool isHovered = ImGui_IsItemHovered(0);
+
+				// 4. Draw the square into the window's draw list using the interaction box area
+				ImDrawList_AddRectFilled(drawList, pos, (ImVec2) { .x = pos.x + size, .y = pos.y + size }, color);
+
+				if (isHovered)
+				{
+					ImGui_SetTooltip("$%02x", paletteColor);
+				}
+
+				if (j != 15)
+					ImGui_SameLine();
+			}
+		}
+
+		ImGui_PopStyleVarEx(2);
+		ImGui_EndTable();
+	}
+
+	ImGui_EndChild();
 }

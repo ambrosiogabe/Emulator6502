@@ -106,7 +106,7 @@ static DWORD emulatorCpuThread(LPVOID lpParam)
 	EnterCriticalSection(&shouldCpuEmulateCriticalSection);
 
 	int64 frameStart = getTimeNanoseconds();
-	emu_virtualMachine* vm = (emu_virtualMachine*)lpParam;
+	emu_app* app = (emu_app*)lpParam;
 	emu_vmError error = emu_vmError_None;
 	while (error == emu_vmError_None || error == emu_vmError_Nop || error == emu_vmError_Break)
 	{
@@ -118,7 +118,7 @@ static DWORD emulatorCpuThread(LPVOID lpParam)
 		isBreakFlagEnabled = cpuThreadBreakFlag;
 		if (shouldStepOverFlag || !cpuThreadBreakFlag)
 		{
-			error = emu_vm_tick(vm);
+			error = emu_vm_tick(app, app->vm);
 			shouldStepOverFlag = false;
 
 			if (error == emu_vmError_Break)
@@ -212,7 +212,7 @@ void emu_app_runTuiMode(emu_app* app, emu_assembler_program* program)
 	while (error == emu_vmError_None)
 	{
 		uint8 nextInstruction = memory[app->vm->programCounter];
-		error = emu_vm_tick(app->vm);
+		error = emu_vm_tick(app, app->vm);
 
 		if (!error)
 		{
@@ -312,7 +312,7 @@ void emu_app_loadProgram(emu_app* app)
 	emu_assembler_free(&program);
 	emu_NesBinaryFile_freeRaw(&binary);
 
-	emu_vm_resetMachine(app->vm);
+	emu_vm_resetMachine(app, app->vm);
 
 	emu_NesBinaryFile* res = g_memory_allocate(sizeof(emu_NesBinaryFile));
 	g_memory_zeroMem(res, sizeof(emu_NesBinaryFile));
@@ -339,7 +339,7 @@ void emu_app_loadProgram(emu_app* app)
 		InitializeConditionVariable(&shouldCpuEmulateCondition);
 
 		// Create thread for cpu to run on
-		cpuThread = CreateThread(NULL, 0, emulatorCpuThread, app->vm, 0, NULL);
+		cpuThread = CreateThread(NULL, 0, emulatorCpuThread, app, 0, NULL);
 	}
 	else
 	{
